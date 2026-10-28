@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="BI Sentinel BI workspace modules">
+  <title>BI Sentinel | BI Workspace</title>
+  <link rel="stylesheet" href="/styles.css?v=workspace-layout-4">
+  <script src="/app.js?v=workspace-layout-4" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="BI Sentinel home">
+      <span class="brand-mark" aria-hidden="true">B</span>
+      <span>BI Sentinel <span class="brand-subtitle">BI Workspace</span></span>
+    </a>
+    <div id="account-controls" class="account-controls" hidden>
+      <span id="account-name" class="account-name"></span>
+      <form action="/auth/sign-out" method="post">
+        <button class="button button-secondary account-sign-out" type="submit">Sign out</button>
+      </form>
+    </div>
+  </header>
+
+  <div id="workspace-layout" class="workspace-layout">
+    <aside class="sidebar" aria-label="Main navigation">
+      <div class="sidebar-heading-row">
+        <p class="sidebar-heading">WORKSPACE</p>
+        <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-expanded="true" aria-controls="main-navigation" aria-label="Collapse navigation" title="Collapse navigation">
+          <span aria-hidden="true">‹</span>
+        </button>
+      </div>
+      <nav id="main-navigation" class="sidebar-nav">
+        <a id="reviews-navigation" class="sidebar-link" href="/reviews" data-module-navigation="reviews" hidden>
+          <span class="sidebar-icon" aria-hidden="true">R</span><span>Power BI Project Review</span>
+        </a>
+        <a class="sidebar-link" href="/modules/governance-audit" data-module-navigation="governanceAudit" hidden>
+          <span class="sidebar-icon" aria-hidden="true">G</span><span>Governance Audit</span>
+        </a>
+        <a class="sidebar-link" href="/modules/performance-optimization" data-module-navigation="performanceOptimization" hidden>
+          <span class="sidebar-icon" aria-hidden="true">P</span><span>Performance Optimization</span>
+        </a>
+        <a class="sidebar-link" href="/modules/release-readiness" data-module-navigation="releaseReadiness" hidden>
+          <span class="sidebar-icon" aria-hidden="true">R</span><span>Release Readiness</span>
+        </a>
+        <a class="sidebar-link" href="/modules/documentation-generator" data-module-navigation="documentationGenerator" hidden>
+          <span class="sidebar-icon" aria-hidden="true">D</span><span>Documentation Generator</span>
+        </a>
+        <a class="sidebar-link" href="/modules/architecture-review" data-module-navigation="architectureReview" hidden>
+          <span class="sidebar-icon" aria-hidden="true">A</span><span>Architecture Review</span>
+        </a>
+        <a class="sidebar-link" href="/modules/bi-delivery-manager" data-module-navigation="biDeliveryManager" hidden>
+          <span class="sidebar-icon" aria-hidden="true">B</span><span>BI Delivery Manager</span>
+        </a>
+        <a id="administration-navigation" class="sidebar-link" href="/admin/workspace">
+          <span class="sidebar-icon" aria-hidden="true">A</span>
+          <span>Administration</span>
+        </a>
+        <p id="module-navigation-status" class="sidebar-status" role="status" aria-live="polite" hidden></p>
+      </nav>
+    </aside>
+    <main class="page">
+    <div id="workspace-loading" class="status" role="status">Loading workspace settings…</div>
+    <div id="review-workspace" hidden>
+    <section class="intro">
+      <div>
+        <p class="eyebrow">POWER BI PROJECT REVIEW</p>
+        <h1>Review your model</h1>
+        <p class="intro-copy">Review Power BI projects, inspect findings, and submit feedback.</p>
+      </div>
+    </section>
+
+    <div id="status" class="status" role="status" aria-live="polite">Ready. Select a Power BI file or project ZIP to review.</div>
+    <div id="error" class="error-banner" role="alert" hidden></div>
+
+    <section class="project-intake" aria-labelledby="project-intake-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">PROJECT INPUT</p>
+          <h2 id="project-intake-title">Review a Power BI project</h2>
+          <p class="dashboard-description">Choose a file from your device. The upload is processed by the review service and is not saved as a project file.</p>
+        </div>
+      </div>
+      <div class="intake-grid">
+        <label class="intake-field upload-field">
+          <span>PBIP project ZIP (preferred) or PBIT template · max 500 MB</span>
+          <input id="project-zip" type="file" accept=".pbit,.zip,application/zip">
+        </label>
+        <label class="intake-field">
+          <span>Stable project ID <small>(optional)</small></span>
+          <input id="project-id" type="text" maxlength="100" placeholder="Defaults to the uploaded file name">
+        </label>
+        <button id="upload-project" class="button button-primary" type="button">Upload &amp; review</button>
+      </div>
+      <div class="upload-guidance">
+        <p><strong>Preferred — PBIP:</strong> upload a ZIP of the entire project folder, preserving its internal folder structure and every referenced report/model folder. A lone <code>.pbip</code> descriptor is not a complete project.</p>
+        <p><strong>Alternative — PBIT:</strong> upload the template directly. The review host must have a compatible pbi-tools executable configured; without it, extraction cannot run. PBIX files are not accepted.</p>
+      </div>
+      <p class="intake-note">Uploads are limited to 500 MB and ZIPs are expanded temporarily with file-count, size, and path-traversal checks; temporary files are removed after review. Only review summaries, findings, and submitted feedback are persisted to SQL.</p>
+    </section>
+
+    <dialog id="review-error-dialog" class="review-error-dialog" aria-labelledby="review-error-title">
+      <div class="review-error-content">
+        <p class="eyebrow">REVIEW ERROR</p>
+        <h2 id="review-error-title">Review could not be completed</h2>
+        <p id="review-error-message" class="review-error-message"></p>
+        <button id="close-review-error" class="button button-primary" type="button" autofocus>Close</button>
+      </div>
+    </dialog>
+
+    <dialog id="review-success-dialog" class="review-success-dialog" aria-labelledby="review-success-title">
+      <div class="review-success-content">
+        <p class="eyebrow">REVIEW COMPLETE</p>
+        <h2 id="review-success-title">Your review is ready</h2>
+        <p id="review-success-message" class="review-success-message"></p>
+        <button id="open-review-results" class="button button-primary" type="button" autofocus>OK — view findings</button>
+      </div>
+    </dialog>
+
+    <section class="history-picker" aria-label="Saved review history">
+      <div class="history-heading">
+        <h2>Search saved reviews</h2>
+        <span>Expired review runs are automatically removed.</span>
+      </div>
+      <form id="review-search-form" class="history-search">
+        <label for="review-search">Search by project name</label>
+        <input id="review-search" type="search" maxlength="400" placeholder="Enter a project name">
+        <button id="search-reviews" class="button button-secondary" type="submit">Search reviews</button>
+      </form>
+      <label for="review-history">Matching saved reviews</label>
+      <select id="review-history">
+        <option value="">Search by project name to load saved reviews</option>
+      </select>
+    </section>
+
+    <section class="dashboard-section" aria-labelledby="dashboard-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">FEEDBACK WORK QUEUE</p>
+          <h2 id="dashboard-title">Review dashboard</h2>
+          <p class="dashboard-description">One row per saved review run. A run is Closed when all its findings have submitted feedback; reopen it to return submitted responses to Waiting.</p>
+        </div>
+        <button id="refresh-dashboard" class="button button-secondary" type="button">Refresh</button>
+      </div>
+      <div class="dashboard-tabs" role="tablist" aria-label="Review feedback status">
+        <button id="waiting-tab" class="dashboard-tab" type="button" role="tab" aria-selected="true">
+          Waiting reviews <span id="waiting-count">0</span>
+        </button>
+        <button id="closed-tab" class="dashboard-tab" type="button" role="tab" aria-selected="false">
+          Closed reviews <span id="closed-count">0</span>
+        </button>
+      </div>
+      <div class="dashboard-table-wrap">
+        <table class="dashboard-table">
+          <thead>
+            <tr>
+              <th>Project / review</th>
+              <th>Findings</th>
+              <th>Feedback progress</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="dashboard-rows"></tbody>
+        </table>
+      </div>
+      <p id="dashboard-empty" class="dashboard-empty" hidden>No findings in this queue.</p>
+    </section>
+
+    <section id="overview" class="overview" aria-label="Review summary" hidden>
+      <div class="summary-card summary-project">
+        <span class="summary-label">PROJECT</span>
+        <strong id="project-name">—</strong>
+        <span class="summary-note">Uploaded artifact</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-label">FINDINGS</span>
+        <strong id="finding-count">0</strong>
+        <span class="summary-note">Advisory results</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-label">MODEL TABLES</span>
+        <strong id="table-count">0</strong>
+        <span class="summary-note">Generated date tables excluded</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-label">MEASURES</span>
+        <strong id="measure-count">0</strong>
+        <span class="summary-note">Explicit model measures</span>
+      </div>
+      <div class="summary-card">
+        <span class="summary-label">RELATIONSHIPS</span>
+        <strong id="relationship-count">0</strong>
+        <span class="summary-note">Non-generated relationships</span>
+      </div>
+    </section>
+
+    <section id="review-results" class="results-section" aria-labelledby="findings-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">REVIEW RESULTS</p>
+          <h2 id="findings-title">Findings</h2>
+        </div>
+        <button id="export-feedback" class="button button-secondary" type="button" disabled>Export feedback</button>
+      </div>
+
+      <div class="filters">
+        <label>
+          <span>Severity</span>
+          <select id="severity-filter">
+            <option value="all">All severities</option>
+            <option value="Error">Error</option>
+            <option value="Warning">Warning</option>
+            <option value="Information">Information</option>
+          </select>
+        </label>
+        <label class="search-field">
+          <span>Search findings</span>
+          <input id="search-filter" type="search" placeholder="Rule, message, or location">
+        </label>
+        <p id="result-count" class="result-count">No results yet</p>
+      </div>
+
+      <div id="empty-state" class="empty-state">
+        <div class="empty-icon" aria-hidden="true">✓</div>
+        <h3>Ready when you are</h3>
+        <p>Run a review to see model validation results here.</p>
+      </div>
+      <div id="findings-list" class="findings-list" aria-live="polite"></div>
+    </section>
+
+    <aside class="privacy-note">
+      <span class="privacy-icon" aria-hidden="true">i</span>
+      <p><strong>Review history and submitted feedback are saved to the configured SQL database.</strong> Feedback stays in Waiting until you select Submit feedback; a submitted response can be reopened. The run dashboard closes a review when all its findings are submitted. Linked feedback follows the review history retention period (30 days for this pilot). Unsubmitted changes are kept only in this page session; use Export feedback before leaving if SQL is unavailable. The generated reviewer ID identifies this browser only; it is not company sign-in.</p>
+    </aside>
+    </div>
+    <section id="module-placeholder" class="module-placeholder" aria-labelledby="module-placeholder-title" hidden>
+      <p id="module-placeholder-eyebrow" class="eyebrow"></p>
+      <h1 id="module-placeholder-title"></h1>
+      <p id="module-placeholder-description" class="intro-copy"></p>
+      <div class="configuration-card">
+        <h2>Module status</h2>
+        <p id="module-placeholder-status" class="dashboard-description"></p>
+      </div>
+    </section>
+    <section id="governance-workspace" class="module-placeholder" aria-labelledby="governance-title" hidden>
+      <header class="intro">
+        <div>
+          <p class="eyebrow">POWER BI SERVICE INVENTORY</p>
+          <h1 id="governance-title">Governance Audit</h1>
+          <p class="intro-copy">Run a read-only inventory of explicitly approved Power BI workspaces, their access, reports, and semantic models.</p>
+        </div>
+      </header>
+      <div class="configuration-card">
+        <p id="governance-status" class="status" role="status" aria-live="polite">A governance administrator must configure the approved workspace scope before scanning.</p>
+        <p id="governance-error" class="error-banner" role="alert" hidden></p>
+        <p class="dashboard-description">Only the workspace IDs saved in Governance Audit Administration are scanned. The audit never changes Power BI content or access.</p>
+        <p class="dashboard-description">BI Sentinel sign-in and Power BI access are separate. Authorize delegated Power BI read access once before your first scan; you do not need to do this for every scan. Repeat only if access is revoked or the app reports that authorization is needed.</p>
+        <a class="button button-secondary" href="/api/governance-audit/signin">Authorize Power BI read access</a>
+        <button id="run-governance-scan" class="button button-primary" type="button">Run read-only audit</button>
+      </div>
+      <div id="governance-results" hidden>
+        <section class="configuration-card">
+          <h2>Workspace overview</h2>
+          <div class="dashboard-table-wrap"><table class="dashboard-table">
+            <thead><tr><th>Workspace</th><th>Reports</th><th>Semantic models</th><th>Workspace admins</th></tr></thead>
+            <tbody id="governance-workspace-rows"></tbody>
+          </table></div>
+        </section>
+        <section class="configuration-card">
+          <h2>Findings</h2>
+          <p class="dashboard-description">Standard checks flag missing visible workspace admins, guest access, Member/Contributor edit access, missing owner metadata, and report/semantic-model dependency candidates. Findings are advisory: guest access, edit roles, shared models, and missing metadata may all be expected in your organization.</p>
+          <div class="dashboard-table-wrap"><table class="dashboard-table">
+            <thead><tr><th>Severity</th><th>Workspace</th><th>Finding</th><th>Details</th></tr></thead>
+            <tbody id="governance-finding-rows"></tbody>
+          </table></div>
+          <p id="governance-no-findings" class="dashboard-empty" hidden>No governance findings were identified in this scan.</p>
+        </section>
+        <section class="configuration-card">
+          <h2>Workspace access</h2>
+          <div class="dashboard-table-wrap"><table class="dashboard-table">
+            <thead><tr><th>Workspace</th><th>Principal</th><th>Type</th><th>Access</th></tr></thead>
+            <tbody id="governance-access-rows"></tbody>
+          </table></div>
+        </section>
+        <section class="configuration-card">
+          <h2>Reports and semantic models</h2>
+          <div class="dashboard-table-wrap"><table class="dashboard-table">
+            <thead><tr><th>Workspace</th><th>Type</th><th>Name</th><th>Owner / configured by</th></tr></thead>
+            <tbody id="governance-artifact-rows"></tbody>
+          </table></div>
+          <p class="dashboard-description">Refresh history is not queried in this phase. Although the refresh-history API uses GET, Power BI requires the signed-in user to have Write permission on each dataset. This audit remains read-only and does not request or use dataset write access.</p>
+        </section>
+        <section class="configuration-card">
+          <h2>Recent audit runs</h2>
+          <div class="dashboard-table-wrap"><table class="dashboard-table">
+            <thead><tr><th>Completed</th><th>Scanned by</th><th>Workspaces</th><th>Reports</th><th>Semantic models</th><th>Findings</th><th>Action</th></tr></thead>
+            <tbody id="governance-history-rows"></tbody>
+          </table></div>
+          <p id="governance-history-empty" class="dashboard-empty" hidden>No saved Governance Audit runs yet.</p>
+        </section>
+      </div>
+    </section>
+    <section id="admin-configuration" class="admin-configuration" aria-labelledby="admin-configuration-title" hidden>
+      <header class="admin-header">
+        <div>
+          <p class="eyebrow">ADMINISTRATION</p>
+          <h1 id="admin-configuration-title">Administration</h1>
+          <p class="intro-copy">Manage workspace availability and settings for each module in its own tab.</p>
+        </div>
+      </header>
+      <div class="admin-security-warning" role="alert">
+        Entra ID authenticates app users. BI Sentinel Admin access is managed here in the app; only administrators can change configuration or assign administrators.
+      </div>
+      <p id="configuration-status" class="status" role="status" aria-live="polite">Load the current configuration to begin.</p>
+      <p id="configuration-error" class="error-banner" role="alert" hidden></p>
+      <div class="configuration-meta">
+        <span id="configuration-version">Version not loaded</span>
+        <span id="configuration-updated"></span>
+      </div>
+
+      <nav class="admin-tabs" role="tablist" aria-label="Administration settings by module">
+        <a id="admin-tab-workspace" class="admin-tab" href="/admin/workspace" role="tab" data-admin-tab="workspace" aria-controls="admin-panel-workspace">Workspace</a>
+        <a id="admin-tab-reviews" class="admin-tab" href="/admin/reviews" role="tab" data-admin-tab="reviews" aria-controls="admin-panel-reviews">Power BI Project Review</a>
+        <a id="admin-tab-governance" class="admin-tab" href="/admin/governance-audit" role="tab" data-admin-tab="governanceAudit" aria-controls="admin-panel-governanceAudit">Governance Audit</a>
+        <a id="admin-tab-performance" class="admin-tab" href="/admin/performance-optimization" role="tab" data-admin-tab="performanceOptimization" aria-controls="admin-panel-performanceOptimization">Performance Optimization</a>
+        <a id="admin-tab-release" class="admin-tab" href="/admin/release-readiness" role="tab" data-admin-tab="releaseReadiness" aria-controls="admin-panel-releaseReadiness">Release Readiness</a>
+        <a id="admin-tab-documentation" class="admin-tab" href="/admin/documentation-generator" role="tab" data-admin-tab="documentationGenerator" aria-controls="admin-panel-documentationGenerator">Documentation Generator</a>
+        <a id="admin-tab-architecture" class="admin-tab" href="/admin/architecture-review" role="tab" data-admin-tab="architectureReview" aria-controls="admin-panel-architectureReview">Architecture Review</a>
+        <a id="admin-tab-delivery" class="admin-tab" href="/admin/bi-delivery-manager" role="tab" data-admin-tab="biDeliveryManager" aria-controls="admin-panel-biDeliveryManager">BI Delivery Manager</a>
+        <a id="admin-tab-users" class="admin-tab" href="/admin/users" role="tab" data-admin-tab="applicationUsers" aria-controls="admin-panel-applicationUsers">Users &amp; access</a>
+      </nav>
+
+      <form id="configuration-form">
+        <section id="admin-panel-workspace" class="admin-tab-panel" role="tabpanel" aria-labelledby="admin-tab-workspace" data-admin-panel="workspace">
+        <section class="configuration-card" aria-labelledby="module-settings-title">
+          <h2 id="module-settings-title">Enabled modules</h2>
+          <p class="dashboard-description">Choose which module tabs are available in the workspace. Modules that are not yet built show a planned-module placeholder when enabled. This controls availability, not user permissions.</p>
+          <div id="module-availability-list" class="module-availability-list"></div>
+        </section>
+        <p class="dashboard-description">This action saves workspace availability only.</p>
+        <div class="configuration-actions">
+          <button class="button button-primary" type="button" data-configuration-section="workspace">Save workspace settings</button>
+        </div>
+        </section>
+
+        <section id="admin-panel-reviews" class="admin-tab-panel" role="tabpanel" aria-labelledby="admin-tab-reviews" data-admin-panel="reviews" hidden>
+        <section class="configuration-card" aria-labelledby="naming-title">
+          <h2 id="naming-title">Naming rules</h2>
+          <p class="dashboard-description">Regular expressions are applied to table, column, measure, and placeholder names.</p>
+          <details class="regex-help">
+            <summary>Regex help and examples</summary>
+            <div class="regex-help-content">
+              <p>Rules use .NET regular expressions and ignore letter case. Use <code>^</code> and <code>$</code> to require the whole name to match; without them, a matching substring can be enough.</p>
+              <div class="regex-examples">
+                <p><code>^[A-Z][A-Za-z0-9]*$</code> — begins with a letter, followed by letters or digits (for example <code>DimCustomer</code>).</p>
+                <p><code>^[A-Z][A-Za-z0-9]*( [A-Z][A-Za-z0-9]*)*$</code> — title-cased words separated by single spaces (for example <code>Total Sales</code>).</p>
+                <p><code>^Column\d*$</code> — the word <code>Column</code> followed by zero or more digits (for example <code>Column</code> or <code>Column12</code>).</p>
+              </div>
+              <p class="regex-tokens"><strong>Common tokens:</strong> <code>[A-Z]</code> one uppercase-range letter · <code>[A-Za-z0-9]</code> a letter or digit · <code>\d</code> a digit · <code>*</code> zero or more · <code>+</code> one or more · <code>(...)</code> group · <code>|</code> alternative.</p>
+            </div>
+          </details>
+          <div class="configuration-grid">
+            <label class="intake-field"><span>Table name regex <small>Example: <code>^[A-Z][A-Za-z0-9]*$</code></small></span><input id="config-table-pattern" maxlength="200" required></label>
+            <label class="intake-field"><span>Column name regex <small>Example: <code>^[A-Z][A-Za-z0-9]*$</code></small></span><input id="config-column-pattern" maxlength="200" required></label>
+            <label class="intake-field"><span>Measure name regex <small>Example: <code>^[A-Z][A-Za-z0-9]*( [A-Z][A-Za-z0-9]*)*$</code></small></span><input id="config-measure-pattern" maxlength="200" required></label>
+            <label class="intake-field"><span>Placeholder column regex <small>Example: <code>^Column\d*$</code></small></span><input id="config-placeholder-pattern" maxlength="200" required></label>
+            <label class="intake-field"><span>Canonical measure table name</span><input id="config-measure-table-name" maxlength="200" required></label>
+            <label class="intake-field"><span>Measure table candidates <small>(one per line)</small></span><textarea id="config-measure-candidates" rows="3"></textarea></label>
+          </div>
+        </section>
+
+        <section class="configuration-card" aria-labelledby="model-settings-title">
+          <h2 id="model-settings-title">Model conventions</h2>
+          <div class="configuration-grid">
+            <label class="intake-field"><span>Fact table prefix</span><input id="config-fact-prefix" maxlength="100" required></label>
+            <label class="intake-field"><span>Dimension table prefix</span><input id="config-dimension-prefix" maxlength="100" required></label>
+            <label class="intake-field"><span>Generated table prefixes <small>(one per line)</small></span><textarea id="config-generated-prefixes" rows="3"></textarea></label>
+            <label class="intake-field"><span>Required measures <small>(one per line)</small></span><textarea id="config-required-measures" rows="3"></textarea></label>
+          </div>
+          <div class="configuration-toggles">
+            <label><input id="config-require-divide" type="checkbox"> Recommend DIVIDE for division in DAX</label>
+            <label><input id="config-warn-format" type="checkbox"> Warn when FORMAT is used in DAX</label>
+          </div>
+        </section>
+
+        <section class="configuration-card" aria-labelledby="rule-policies-title">
+          <h2 id="rule-policies-title">Built-in rule policies</h2>
+          <p class="dashboard-description">Enable or disable each rule and select its finding severity. Adding new rule logic requires an application code change.</p>
+          <div id="rule-policy-list" class="rule-policy-list"></div>
+        </section>
+        <p class="dashboard-description">This action saves Power BI Project Review standards and rules only.</p>
+        <div class="configuration-actions">
+          <button class="button button-primary" type="button" data-configuration-section="reviews">Save review settings</button>
+        </div>
+        </section>
+
+        <section id="admin-panel-governanceAudit" class="admin-tab-panel" role="tabpanel" aria-labelledby="admin-tab-governance" data-admin-panel="governanceAudit" hidden>
+          <div class="configuration-card">
+            <p class="eyebrow">GOVERNANCE AUDIT</p>
+            <h2>Governance Audit settings</h2>
+            <p class="dashboard-description">Discover workspaces visible to the configured Power BI identity, then save an explicit allowlist. Only saved workspaces are scanned. Maximum scope is controlled by the server.</p>
+            <p id="governance-config-status" class="status" role="status" aria-live="polite">Governance configuration has not been loaded.</p>
+            <p id="governance-config-error" class="error-banner" role="alert" hidden></p>
+            <div class="configuration-actions">
+              <button id="discover-governance-workspaces" class="button button-secondary" type="button">Discover accessible workspaces</button>
+            </div>
+            <div id="governance-workspace-discovery" class="module-availability-list"></div>
+            <div class="configuration-actions">
+              <button id="use-governance-workspace-selection" class="button button-secondary" type="button">Use selected workspaces</button>
+            </div>
+            <label class="intake-field">
+              <span>Approved Power BI workspace IDs <small>(one GUID per line)</small></span>
+              <textarea id="governance-workspace-ids" rows="5" spellcheck="false" placeholder="00000000-0000-0000-0000-000000000000"></textarea>
+            </label>
+            <p id="governance-config-version" class="dashboard-description">Configuration version not loaded.</p>
+            <div class="configuration-actions">
+              <button id="save-governance-configuration" class="button button-primary" type="button">Save Governance Audit scope</button>
+            </div>
+          </div>
+        </section>
+
+        <section id="admin-panel-performanceOptimization" class="admin-tab-panel" role="tabpanel" aria-labelledby="admin-tab-performance" data-admin-panel="performanceOptimization" hidden>
+          <div class="configuration-card admin-module-placeholder">
+            <p class="eyebrow">PERFORMANCE OPTIMIZATION</p>
+            <h2>Performance Optimization settings</h2>
+            <p class="dashboard-description">Configuration for DAX analysis, model design, cardinality, refresh operations, and performance thresholds will be added here as this module is implemented.</p>
+            <p class="admin-module-status">No Performance Optimization settings are available yet. Its workspace availability is controlled in the Workspace tab.</p>
+          </div>
+        </section>
+
+        <section id="admin-panel-releaseReadiness" class="admin-tab-panel" role="tabpanel" aria-labelledby="admin-tab-release" data-admin-panel="releaseReadiness" hidden>
+          <div class="configuration-card admin-module-placeholder">
+            <p class="eyebrow">RELEASE READINESS</p>
+            <h2>Release Readiness settings</h2>
+            <p class="dashboard-description">Configuration for release checks, RLS validation, documentation, refresh validation, security, and deployment readiness will be added here as this module is implemented.</p>
+            <p class="admin-module-status">No Release Readiness settings are available yet. Its workspace availability is controlled in the Workspace tab.</p>
+          </div>
+        </section>
+
+        <section id="admin-panel-documentationGenerator" class="admin-tab-panel" role="tabpanel" aria-labelledby="admin-tab-documentation" data-admin-panel="documentationGenerator" hidden>
+          <div class="configuration-card admin-module-placeholder">
+            <p class="eyebrow">DOCUMENTATION GENERATOR</p>
+            <h2>Documentation Generator settings</h2>
+            <p class="dashboard-description">Configuration for generated data dictionaries, measure catalogs, technical design documents, release notes, and architecture documentation will be added here as this module is implemented.</p>
+            <p class="admin-module-status">No Documentation Generator settings are available yet. Its workspace availability is controlled in the Workspace tab.</p>
+          </div>
+        </section>
+
+        <section id="admin-panel-architectureReview" class="admin-tab-panel" role="tabpanel" aria-labelledby="admin-tab-architecture" data-admin-panel="architectureReview" hidden>
+          <div class="configuration-card admin-module-placeholder">
+            <p class="eyebrow">ARCHITECTURE REVIEW</p>
+            <h2>Architecture Review settings</h2>
+            <p class="dashboard-description">Configuration for architecture standards, scalability, security, reusability, and maturity assessments will be added here as this module is implemented.</p>
+            <p class="admin-module-status">No Architecture Review settings are available yet. Its workspace availability is controlled in the Workspace tab.</p>
+          </div>
+        </section>
+
+        <section id="admin-panel-biDeliveryManager" class="admin-tab-panel" role="tabpanel" aria-labelledby="admin-tab-delivery" data-admin-panel="biDeliveryManager" hidden>
+          <div class="configuration-card admin-module-placeholder">
+            <p class="eyebrow">BI DELIVERY MANAGER</p>
+            <h2>BI Delivery Manager settings</h2>
+            <p class="dashboard-description">Configuration for requirement templates, story generation, KPI/measure planning, visual recommendations, and estimation will be added here as this module is implemented.</p>
+            <p class="admin-module-status">No BI Delivery Manager settings are available yet. Its workspace availability is controlled in the Workspace tab.</p>
+          </div>
+        </section>
+
+        <section id="admin-panel-applicationUsers" class="admin-tab-panel" role="tabpanel" aria-labelledby="admin-tab-users" data-admin-panel="applicationUsers" hidden>
+          <div class="configuration-card">
+            <p class="eyebrow">APPLICATION ACCESS</p>
+            <h2>Users &amp; access</h2>
+            <p class="dashboard-description">Tenant users receive basic Review access when they sign in. Grant or remove the BI Sentinel Admin role here. Users appear after their first sign-in.</p>
+            <p id="application-users-status" class="status" role="status" aria-live="polite">User list has not been loaded.</p>
+            <p id="application-users-error" class="error-banner" role="alert" hidden></p>
+            <div class="dashboard-table-wrap">
+              <table class="dashboard-table">
+                <thead><tr><th>User</th><th>Email</th><th>First sign-in</th><th>Application role</th><th>Action</th></tr></thead>
+                <tbody id="application-users-rows"></tbody>
+              </table>
+            </div>
+            <p id="application-users-empty" class="dashboard-empty" hidden>No users have signed in yet.</p>
+          </div>
+        </section>
+
+        <div class="configuration-actions">
+          <button id="reload-configuration" class="button button-secondary" type="button">Reload</button>
+        </div>
+      </form>
+    </section>
+    </main>
+  </div>
+
+  <footer>
+    <span>BI Sentinel · BI workspace</span>
+    <span>Review results do not modify your Power BI project.</span>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,83 @@
+@BISentinel.Api_HostAddress = http://localhost:5077
+
+GET {{BISentinel.Api_HostAddress}}/health/live
+Accept: application/json
+
+###
+
+GET {{BISentinel.Api_HostAddress}}/health/ready
+Accept: application/json
+
+###
+
+GET {{BISentinel.Api_HostAddress}}/api/auth/session
+Accept: application/json
+
+###
+
+GET {{BISentinel.Api_HostAddress}}/auth/sign-in
+
+###
+
+GET {{BISentinel.Api_HostAddress}}/api/admin/application-users
+Accept: application/json
+
+###
+
+@applicationUserId = 00000000-0000-0000-0000-000000000000
+
+PUT {{BISentinel.Api_HostAddress}}/api/admin/application-users/{{applicationUserId}}/admin
+Content-Type: application/json
+Accept: application/json
+
+{
+  "isAdmin": true
+}
+
+###
+
+POST {{BISentinel.Api_HostAddress}}/auth/sign-out
+
+###
+
+GET {{BISentinel.Api_HostAddress}}/api/admin/review-configuration
+Accept: application/json
+
+###
+
+PUT {{BISentinel.Api_HostAddress}}/api/admin/review-configuration
+Content-Type: application/json
+Accept: application/json
+
+{
+  "expectedVersion": 1,
+  "configuration": {
+    "tableNamePattern": "^[A-Z][A-Za-z0-9]*$",
+    "columnNamePattern": "^[A-Z][A-Za-z0-9]*$",
+    "measureNamePattern": "^[A-Z][A-Za-z0-9]*( [A-Z][A-Za-z0-9]*)*$",
+    "placeholderColumnPattern": "^Column\\d*$",
+    "measureTableName": "Measures",
+    "measureTableNameCandidates": ["measures (2)"],
+    "factTablePrefix": "Fact",
+    "dimensionTablePrefix": "Dim",
+    "generatedTablePrefixes": ["LocalDateTable_", "DateTableTemplate_"],
+    "requiredMeasures": [],
+    "requireDivideForDivision": true,
+    "warnOnFormatInDax": true,
+    "rules": {
+      "project-structure": { "enabled": true, "severity": "Error" },
+      "table-naming": { "enabled": true, "severity": "Warning" },
+      "column-naming": { "enabled": true, "severity": "Warning" },
+      "placeholder-column": { "enabled": true, "severity": "Warning" },
+      "measure-table-name": { "enabled": true, "severity": "Warning" },
+      "measure-naming": { "enabled": true, "severity": "Warning" },
+      "required-measures": { "enabled": true, "severity": "Error" },
+      "relationship-columns": { "enabled": true, "severity": "Error" },
+      "star-schema-relationships": { "enabled": true, "severity": "Warning" },
+      "single-direction-relationships": { "enabled": true, "severity": "Warning" },
+      "explicit-measures": { "enabled": true, "severity": "Warning" },
+      "dax-division": { "enabled": true, "severity": "Warning" },
+      "dax-format": { "enabled": true, "severity": "Warning" }
+    }
+  }
+}
