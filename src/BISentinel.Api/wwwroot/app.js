@@ -4,8 +4,13 @@ const legacyReviewerStorageKey = "bitla.reviewerId.v1";
 const elements = {
   appLoadingIndicator: document.querySelector("#app-loading-indicator"),
   appLoadingMessage: document.querySelector("#app-loading-message"),
+  topbar: document.querySelector(".topbar"),
   workspaceLayout: document.querySelector("#workspace-layout"),
   workspaceLoading: document.querySelector("#workspace-loading"),
+  applicationStatePage: document.querySelector("#application-state-page"),
+  applicationStateTitle: document.querySelector("#application-state-title"),
+  applicationStateDescription: document.querySelector("#application-state-description"),
+  applicationStateRetry: document.querySelector("#application-state-retry"),
   sidebarToggle: document.querySelector("#sidebar-toggle"),
   accountControls: document.querySelector("#account-controls"),
   accountName: document.querySelector("#account-name"),
@@ -23,7 +28,11 @@ const elements = {
   governanceArtifactItems: document.querySelector("#governance-artifact-items"),
   governanceScanTabs: [...document.querySelectorAll("[data-governance-scan-tab]")],
   governanceScanPanels: [...document.querySelectorAll("[data-governance-scan-panel]")],
+  governancePageTabs: [...document.querySelectorAll("[data-governance-page-tab]")],
+  governancePages: [...document.querySelectorAll("[data-governance-page]")],
   governancePowerBiAccessStatus: document.querySelector("#governance-powerbi-access-status"),
+  governanceWorkspaceLoadStatus: document.querySelector("#governance-workspace-load-status"),
+  governanceWorkspaceLoadMessage: document.querySelector("#governance-workspace-load-message"),
   authorizeGovernancePowerBi: document.querySelector("#authorize-governance-powerbi"),
   checkGovernancePowerBiAccess: document.querySelector("#check-governance-powerbi-access"),
   governanceAccessNext: document.querySelector("#governance-access-next"),
@@ -77,6 +86,9 @@ const elements = {
   governanceArtifactRows: document.querySelector("#governance-artifact-rows"),
   governanceHistoryRows: document.querySelector("#governance-history-rows"),
   governanceHistoryEmpty: document.querySelector("#governance-history-empty"),
+  governanceHistorySearch: document.querySelector("#governance-history-search"),
+  governanceHistoryCount: document.querySelector("#governance-history-count"),
+  governanceHistoryError: document.querySelector("#governance-history-error"),
   governanceConfigStatus: document.querySelector("#governance-config-status"),
   governanceConfigError: document.querySelector("#governance-config-error"),
   governanceConfigVersion: document.querySelector("#governance-config-version"),
@@ -243,6 +255,7 @@ let moduleAvailability = null;
 let activeWorkspaceView = "reviews";
 let governanceCheckCatalogLoaded = false;
 let governanceScanScopeLoaded = false;
+let governanceScanScopeLoadingPromise = null;
 let governanceArtifactCatalogs = new Map();
 let governanceArtifactSelections = new Map();
 const governanceGlobalArtifactCatalogs = { Apps: null, Gateways: null };
@@ -266,6 +279,7 @@ let reviewerSubmissionMode = false;
 const reviewerId = loadReviewerId();
 
 elements.sidebarToggle.addEventListener("click", toggleSidebar);
+elements.applicationStateRetry.addEventListener("click", () => window.location.reload());
 for (const navigation of elements.moduleNavigations) {
   navigation.addEventListener("click", event => {
     event.preventDefault();
@@ -285,10 +299,14 @@ for (const tab of elements.adminTabs) {
 document.querySelector(".admin-tabs").addEventListener("keydown", handleAdministrationTabKeydown);
 for (const tab of elements.governanceScanTabs) {
   tab.addEventListener("click", () => {
-    activateGovernanceScanTab(tab.dataset.governanceScanTab);
+    void requestGovernanceScanTab(tab.dataset.governanceScanTab);
   });
 }
 document.querySelector(".governance-scan-tabs").addEventListener("keydown", handleGovernanceScanTabKeydown);
+for (const tab of elements.governancePageTabs) {
+  tab.addEventListener("click", () => navigateGovernancePage(tab.dataset.governancePageTab));
+}
+elements.governanceHistorySearch.addEventListener("input", filterGovernanceAuditHistory);
 elements.governanceScanWorkspaces.addEventListener("change", () => {
   governanceArtifactCatalogWorkspaceKey = "";
   if (document.querySelector('[data-governance-scan-tab="artifacts"][aria-selected="true"]')) {
@@ -330,18 +348,18 @@ window.addEventListener("popstate", routeWorkspaceFromLocation);
 elements.reloadConfiguration.addEventListener("click", loadReviewConfiguration);
 elements.runGovernanceScan.addEventListener("click", runGovernanceScan);
 elements.governanceWorkspacesNext.addEventListener("click", continueToGovernanceArtifacts);
-elements.governanceArtifactsBack.addEventListener("click", () => activateGovernanceScanTab("workspaces"));
+elements.governanceArtifactsBack.addEventListener("click", () => void requestGovernanceScanTab("workspaces"));
 elements.governanceArtifactsNext.addEventListener("click", continueToGovernanceChecks);
-elements.governanceChecksBack.addEventListener("click", () => activateGovernanceScanTab("artifacts"));
+elements.governanceChecksBack.addEventListener("click", () => void requestGovernanceScanTab("artifacts"));
 elements.checkGovernancePowerBiAccess.addEventListener("click", () => {
   void loadGovernancePowerBiAccess();
 });
 elements.governanceAccessNext.addEventListener("click", () => {
-  activateGovernanceScanTab("workspaces");
+  void requestGovernanceScanTab("workspaces");
 });
 elements.openGovernanceResults.addEventListener("click", () => {
   elements.governanceResultsDialog.close();
-  elements.governanceResults.scrollIntoView({ behavior: "smooth", block: "start" });
+  navigateGovernancePage("results");
 });
 elements.governanceResultCounts.addEventListener("click", handleGovernanceResultCardClick);
 elements.governanceResultsDialogCounts.addEventListener("click", handleGovernanceResultCardClick);
@@ -538,6 +556,7 @@ const ruleDescriptions = {
 function setWorkspaceView(view) {
   const isAdministration = view === "administration";
   const wasAdministration = activeWorkspaceView === "administration";
+  const wasGovernanceAudit = activeWorkspaceView === "governanceAudit";
   const selectedModule = modules.find(module => module.key === view);
   if (!isAdministration && (!selectedModule || !isModuleAvailableToCurrentUser(selectedModule))) {
     return;
@@ -575,7 +594,7 @@ function setWorkspaceView(view) {
   if (isAdministration && !wasAdministration) {
     void loadReviewConfiguration();
   }
-  if (isGovernanceAudit) {
+  if (isGovernanceAudit && (!wasGovernanceAudit || governancePowerBiAuthorized === null)) {
     void loadGovernancePowerBiAccess();
   }
 }
@@ -629,6 +648,10 @@ function routeWorkspaceFromLocation() {
   const selectedModule = modules.find(module => module.route === route);
   if (selectedModule && isModuleAvailableToCurrentUser(selectedModule)) {
     setWorkspaceView(selectedModule.key);
+    if (selectedModule.key === "governanceAudit") {
+      const requestedPage = new URLSearchParams(window.location.search).get("page");
+      setGovernancePage(requestedPage || "run");
+    }
     return;
   }
 
@@ -668,6 +691,51 @@ function navigateWorkspace(view, replace = false) {
   setWorkspaceView(view);
   if (view === "administration") {
     setAdministrationTab("workspace");
+  }
+}
+
+function navigateGovernancePage(pageName) {
+  if (activeWorkspaceView !== "governanceAudit") {
+    return;
+  }
+  const requestedPage = pageName === "results" && !currentGovernanceAudit ? "run" : pageName;
+  if (!elements.governancePages.some(page => page.dataset.governancePage === requestedPage)) {
+    return;
+  }
+
+  const query = new URLSearchParams(window.location.search);
+  if (requestedPage === "run") {
+    query.delete("page");
+  } else {
+    query.set("page", requestedPage);
+  }
+  const suffix = query.toString();
+  const url = `${window.location.pathname}${suffix ? `?${suffix}` : ""}${window.location.hash}`;
+  if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== url) {
+    window.history.pushState(null, "", url);
+  }
+  setGovernancePage(requestedPage);
+}
+
+function setGovernancePage(pageName) {
+  const page = pageName === "results" && !currentGovernanceAudit ? "run" : pageName;
+  const selectedPage = elements.governancePages.find(item => item.dataset.governancePage === page)
+    ?? elements.governancePages.find(item => item.dataset.governancePage === "run");
+  for (const section of elements.governancePages) {
+    section.hidden = section !== selectedPage;
+  }
+  for (const tab of elements.governancePageTabs) {
+    const isSelected = tab.dataset.governancePageTab === selectedPage.dataset.governancePage;
+    tab.classList.toggle("is-active", isSelected);
+    if (isSelected) {
+      tab.setAttribute("aria-current", "page");
+    } else {
+      tab.removeAttribute("aria-current");
+    }
+  }
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  if (selectedPage.dataset.governancePage === "history") {
+    void loadGovernanceAuditHistory();
   }
 }
 
@@ -751,20 +819,10 @@ async function loadModuleNavigation() {
       await loadDashboard();
     }
   } catch (error) {
-    elements.workspaceLoading.hidden = true;
-    for (const navigation of elements.moduleNavigations) {
-      navigation.hidden = true;
-    }
-    elements.reviewWorkspace.hidden = true;
-    elements.modulePlaceholder.hidden = false;
-    elements.modulePlaceholderEyebrow.textContent = "MODULE SETTINGS UNAVAILABLE";
-    elements.modulePlaceholderTitle.textContent = "Workspace modules could not be loaded";
-    elements.modulePlaceholderDescription.textContent =
-      "The database-backed module configuration is unavailable. Contact an administrator or retry after the configuration database is ready.";
-    elements.modulePlaceholderStatus.textContent = "Module tabs are hidden until their database configuration can be read.";
-    elements.moduleNavigationStatus.textContent =
-      error instanceof Error ? error.message : "Module configuration could not be loaded.";
-    elements.moduleNavigationStatus.hidden = false;
+    showApplicationStatePage(
+      "Workspace modules couldn’t be loaded",
+      "BI Sentinel could not retrieve the workspace settings. Please try again. If the problem continues, contact your BI Sentinel administrator."
+    );
   }
 }
 
@@ -901,19 +959,24 @@ function toggleSidebar() {
 async function initializeWorkspace() {
   try {
     await loadAuthenticationSession();
-  } catch (error) {
+  } catch {
     elements.workspaceLoading.hidden = true;
-    elements.modulePlaceholder.hidden = false;
-    elements.modulePlaceholderEyebrow.textContent = "SIGN-IN UNAVAILABLE";
-    elements.modulePlaceholderTitle.textContent = "Application access could not be verified";
-    elements.modulePlaceholderDescription.textContent =
-      "The sign-in session or application access database is unavailable. Contact a BI Sentinel administrator.";
-    elements.modulePlaceholderStatus.textContent =
-      error instanceof Error ? error.message : "Application access could not be verified.";
+    showApplicationStatePage(
+      "We couldn’t verify your access",
+      "Your workspace is temporarily unavailable. Please try again. If the problem continues, contact your BI Sentinel administrator."
+    );
     return;
   }
 
   await loadModuleNavigation();
+}
+
+function showApplicationStatePage(title, description) {
+  elements.topbar.hidden = true;
+  elements.workspaceLayout.hidden = true;
+  elements.applicationStateTitle.textContent = title;
+  elements.applicationStateDescription.textContent = description;
+  elements.applicationStatePage.hidden = false;
 }
 
 async function loadAuthenticationSession() {
@@ -932,7 +995,7 @@ async function loadAuthenticationSession() {
   }
 
   if (!applicationSession.isAuthenticated) {
-    window.location.reload();
+    window.location.assign("/auth/sign-in");
     return;
   }
 
@@ -1103,7 +1166,19 @@ async function loadGovernanceScanScope() {
   if (governanceScanScopeLoaded) {
     return true;
   }
+  if (governanceScanScopeLoadingPromise) {
+    return governanceScanScopeLoadingPromise;
+  }
 
+  governanceScanScopeLoadingPromise = fetchGovernanceScanScope();
+  try {
+    return await governanceScanScopeLoadingPromise;
+  } finally {
+    governanceScanScopeLoadingPromise = null;
+  }
+}
+
+async function fetchGovernanceScanScope() {
   elements.governanceScanWorkspaces.replaceChildren();
   try {
     const scopeResponse = await fetch("/api/governance-audit/scan-scope", {
@@ -1178,6 +1253,35 @@ async function loadGovernanceScanScope() {
   }
 }
 
+async function prepareGovernanceWorkspaceStep() {
+  if (!governanceScanScopeLoaded) {
+    activateGovernanceScanTab("access");
+    elements.governanceScanWorkspaces.replaceChildren();
+  }
+  elements.governanceWorkspaceLoadStatus.hidden = false;
+  elements.governanceWorkspaceLoadStatus.classList.remove("is-error");
+  elements.governanceWorkspaceLoadMessage.textContent = "Loading approved workspace names from Power BI…";
+  elements.governanceAccessNext.disabled = true;
+  const workspaceTab = elements.governanceScanTabs.find(tab => tab.dataset.governanceScanTab === "workspaces");
+  workspaceTab.disabled = true;
+
+  const loaded = await loadGovernanceScanScope();
+  if (!loaded) {
+    elements.governanceWorkspaceLoadStatus.classList.add("is-error");
+    const detail = elements.governanceScanWorkspaces.textContent.trim();
+    elements.governanceWorkspaceLoadMessage.textContent = detail
+      ? `Workspace names could not be verified: ${detail}`
+      : "Workspace names could not be verified. Check Power BI access and the approved workspace scope, then check access again.";
+    return false;
+  }
+
+  elements.governanceWorkspaceLoadMessage.textContent =
+    `${elements.governanceScanWorkspaces.querySelectorAll("[data-governance-scan-workspace]").length} approved workspace names loaded from Power BI.`;
+  workspaceTab.disabled = false;
+  elements.governanceAccessNext.disabled = false;
+  return true;
+}
+
 function activateGovernanceScanTab(tabName) {
   if (tabName !== "access" && governancePowerBiAuthorized !== true) {
     return;
@@ -1185,13 +1289,32 @@ function activateGovernanceScanTab(tabName) {
   for (const tab of elements.governanceScanTabs) {
     const isActive = tab.dataset.governanceScanTab === tabName;
     tab.setAttribute("aria-selected", String(isActive));
+    tab.tabIndex = isActive ? 0 : -1;
     tab.classList.toggle("is-active", isActive);
   }
   for (const panel of elements.governanceScanPanels) {
     panel.hidden = panel.dataset.governanceScanPanel !== tabName;
   }
+}
+
+async function requestGovernanceScanTab(tabName) {
+  if (tabName === "access") {
+    activateGovernanceScanTab("access");
+    return;
+  }
+  if (governancePowerBiAuthorized !== true) {
+    return;
+  }
+  if (tabName === "workspaces") {
+    if (await prepareGovernanceWorkspaceStep()) {
+      activateGovernanceScanTab("workspaces");
+    }
+    return;
+  }
   if (tabName === "artifacts") {
-    void loadGovernanceArtifactCatalogs();
+    await continueToGovernanceArtifacts();
+  } else if (tabName === "checks") {
+    await continueToGovernanceChecks();
   }
 }
 
@@ -1221,12 +1344,12 @@ async function loadGovernancePowerBiAccess() {
         : "Workspace access is ready, but Tenant.Read.All consent is missing. Authorize metadata access to run OPT checks; those checks will otherwise show insufficient evidence.";
       icon.replaceChildren(createGovernanceIcon("check"));
       elements.authorizeGovernancePowerBi.hidden = result.modelMetadataAuthorized === true;
-      elements.governanceAccessNext.disabled = false;
+      elements.governanceAccessNext.disabled = true;
       for (const tab of elements.governanceScanTabs) {
-        tab.disabled = false;
+        tab.disabled = tab.dataset.governanceScanTab !== "access";
       }
       void loadGovernanceCheckCatalog();
-      void loadGovernanceScanScope();
+      void prepareGovernanceWorkspaceStep();
       void loadGovernanceAuditHistory();
     } else {
       elements.governancePowerBiAccessStatus.classList.add("is-unauthorized");
@@ -1235,6 +1358,7 @@ async function loadGovernancePowerBiAccess() {
       icon.replaceChildren(createGovernanceIcon("warning"));
       elements.authorizeGovernancePowerBi.hidden = false;
       elements.governanceAccessNext.disabled = true;
+      elements.governanceWorkspaceLoadStatus.hidden = true;
       for (const tab of elements.governanceScanTabs) {
         tab.disabled = tab.dataset.governanceScanTab !== "access";
       }
@@ -1249,6 +1373,7 @@ async function loadGovernancePowerBiAccess() {
       .replaceChildren(createGovernanceIcon("warning"));
     elements.authorizeGovernancePowerBi.hidden = false;
     elements.governanceAccessNext.disabled = true;
+    elements.governanceWorkspaceLoadStatus.hidden = true;
     for (const tab of elements.governanceScanTabs) {
       tab.disabled = tab.dataset.governanceScanTab !== "access";
     }
@@ -1280,6 +1405,7 @@ async function continueToGovernanceArtifacts() {
   }
 
   elements.governanceError.hidden = true;
+  elements.governanceScanTabs.find(tab => tab.dataset.governanceScanTab === "artifacts").disabled = false;
   activateGovernanceScanTab("artifacts");
 }
 
@@ -1305,6 +1431,7 @@ async function continueToGovernanceChecks() {
   }
 
   elements.governanceError.hidden = true;
+  elements.governanceScanTabs.find(tab => tab.dataset.governanceScanTab === "checks").disabled = false;
   activateGovernanceScanTab("checks");
 }
 
@@ -1319,18 +1446,22 @@ function handleGovernanceScanTabKeydown(event) {
     return;
   }
   event.preventDefault();
-  const activeIndex = elements.governanceScanTabs.findIndex(
+  const enabledTabs = elements.governanceScanTabs.filter(tab => !tab.disabled);
+  if (enabledTabs.length === 0) {
+    return;
+  }
+  const activeIndex = Math.max(0, enabledTabs.findIndex(
     tab => tab.getAttribute("aria-selected") === "true"
-  );
+  ));
   const nextIndex = event.key === "Home"
     ? 0
     : event.key === "End"
-      ? elements.governanceScanTabs.length - 1
-      : (activeIndex + (event.key === "ArrowRight" ? 1 : -1) + elements.governanceScanTabs.length) %
-        elements.governanceScanTabs.length;
-  const nextTab = elements.governanceScanTabs[nextIndex];
+      ? enabledTabs.length - 1
+      : (activeIndex + (event.key === "ArrowRight" ? 1 : -1) + enabledTabs.length) %
+        enabledTabs.length;
+  const nextTab = enabledTabs[nextIndex];
   nextTab.focus();
-  activateGovernanceScanTab(nextTab.dataset.governanceScanTab);
+  void requestGovernanceScanTab(nextTab.dataset.governanceScanTab);
 }
 
 async function loadGovernanceArtifactCatalogs() {
@@ -1907,6 +2038,8 @@ async function executeGovernanceScan({
 
 function renderGovernanceAudit(result) {
   currentGovernanceAudit = result;
+  const resultsTab = elements.governancePageTabs.find(tab => tab.dataset.governancePageTab === "results");
+  resultsTab.disabled = false;
   elements.governanceWorkspaceRows.replaceChildren();
   elements.governanceGatewayRows.replaceChildren();
   elements.governanceAccessRows.replaceChildren();
@@ -2998,41 +3131,16 @@ async function loadGovernanceCheckCatalog() {
 
 function createGovernanceIcon(name) {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("viewBox", "0 0 16 16");
   svg.setAttribute("aria-hidden", "true");
-  const shape = document.createElementNS("http://www.w3.org/2000/svg", name === "warning" ? "path" : name === "list" ? "rect" : "circle");
-  if (name === "warning") {
-    shape.setAttribute("d", "m12 3 9 17H3l9-17Z");
-  } else if (name === "list") {
-    shape.setAttribute("x", "4");
-    shape.setAttribute("y", "4");
-    shape.setAttribute("width", "16");
-    shape.setAttribute("height", "16");
-    shape.setAttribute("rx", "2");
-  } else {
-    shape.setAttribute("cx", "12");
-    shape.setAttribute("cy", "12");
-    shape.setAttribute("r", "9");
-  }
-  svg.append(shape);
-  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-  if (name === "check") {
-    path.setAttribute("d", "m8 12 2.5 2.5L16 9");
-    svg.append(path);
-  } else if (name === "information") {
-    path.setAttribute("d", "M12 11v5m0-8h.01");
-    svg.append(path);
-  } else if (name === "warning") {
-    path.setAttribute("d", "M12 9v4m0 3h.01");
-    svg.append(path);
-  } else if (name === "list") {
-    path.setAttribute("d", "M8 9h8M8 13h8M8 17h5");
-    svg.append(path);
-  }
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "use");
+  icon.setAttribute("href", `#icon-${name}`);
+  svg.append(icon);
   return svg;
 }
 
 async function loadGovernanceAuditHistory() {
+  elements.governanceHistoryError.hidden = true;
   try {
     const response = await fetch("/api/governance-audit/runs?limit=20", {
       headers: { Accept: "application/json" }
@@ -3044,8 +3152,9 @@ async function loadGovernanceAuditHistory() {
     const runs = await response.json();
     elements.governanceHistoryRows.replaceChildren();
     for (const run of runs) {
+      const scannedAt = new Date(run.scannedUtc).toLocaleString();
       const row = appendGovernanceRow(elements.governanceHistoryRows, [
-        new Date(run.scannedUtc).toLocaleString(),
+        scannedAt,
         run.scannedBy,
         run.workspaceCount,
         run.reportCount,
@@ -3055,6 +3164,18 @@ async function loadGovernanceAuditHistory() {
         run.gatewayCount,
         run.findingCount
       ]);
+      row.dataset.auditSearch = [
+        run.scannedUtc,
+        scannedAt,
+        run.scannedBy,
+        run.workspaceCount,
+        run.reportCount,
+        run.dashboardCount,
+        run.semanticModelCount,
+        run.appCount,
+        run.gatewayCount,
+        run.findingCount
+      ].join(" ").toLocaleLowerCase();
       const actionCell = document.createElement("td");
       const openButton = document.createElement("button");
       openButton.type = "button";
@@ -3064,17 +3185,36 @@ async function loadGovernanceAuditHistory() {
       actionCell.append(openButton);
       row.append(actionCell);
     }
-    elements.governanceHistoryEmpty.hidden = runs.length > 0;
+    filterGovernanceAuditHistory();
   } catch (error) {
-    elements.governanceError.textContent =
+    elements.governanceHistoryError.textContent =
       error instanceof Error ? error.message : "Saved Governance Audit history could not be loaded.";
-    elements.governanceError.hidden = false;
+    elements.governanceHistoryError.hidden = false;
+  }
+}
+
+function filterGovernanceAuditHistory() {
+  const query = elements.governanceHistorySearch.value.trim().toLocaleLowerCase();
+  const rows = [...elements.governanceHistoryRows.querySelectorAll("tr")];
+  let visibleCount = 0;
+  for (const row of rows) {
+    const matches = !query || row.dataset.auditSearch.includes(query);
+    row.hidden = !matches;
+    visibleCount += matches ? 1 : 0;
+  }
+  elements.governanceHistoryCount.textContent =
+    `Showing ${visibleCount} of ${rows.length} saved audit run${rows.length === 1 ? "" : "s"}.`;
+  elements.governanceHistoryEmpty.hidden = visibleCount > 0;
+  if (rows.length === 0) {
+    elements.governanceHistoryEmpty.textContent = "No saved Governance Audit runs yet.";
+  } else if (visibleCount === 0) {
+    elements.governanceHistoryEmpty.textContent = "No audit runs match your search.";
   }
 }
 
 async function loadGovernanceAuditRun(runId) {
   elements.governanceStatus.textContent = "Loading saved Governance Audit run…";
-  elements.governanceError.hidden = true;
+  elements.governanceHistoryError.hidden = true;
   try {
     const response = await fetch(`/api/governance-audit/runs/${encodeURIComponent(runId)}`, {
       headers: { Accept: "application/json" }
@@ -3088,10 +3228,11 @@ async function loadGovernanceAuditRun(runId) {
     elements.governanceResults.hidden = false;
     elements.governanceStatus.textContent =
       `Showing saved read-only audit from ${new Date(result.scannedUtc).toLocaleString()}.`;
+    navigateGovernancePage("results");
   } catch (error) {
-    elements.governanceError.textContent =
+    elements.governanceHistoryError.textContent =
       error instanceof Error ? error.message : "Saved Governance Audit run could not be loaded.";
-    elements.governanceError.hidden = false;
+    elements.governanceHistoryError.hidden = false;
     elements.governanceStatus.textContent = "Saved audit run could not be loaded.";
   }
 }

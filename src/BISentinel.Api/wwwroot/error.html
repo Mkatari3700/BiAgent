@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>Something went wrong | BI Sentinel</title>
+  <link rel="stylesheet" href="/auth.css?v=branded-auth-and-error-pages-1">
+</head>
+<body class="auth-page">
+  <main class="auth-shell">
+    <section class="auth-card auth-error-card" aria-labelledby="error-title">
+      <a class="auth-brand" href="/" aria-label="BI Sentinel home">
+        <img class="auth-brand-mark" src="/brand-mark.svg" alt="">
+        <span>BI Sentinel <small>BI Workspace</small></span>
+      </a>
+      <div class="auth-error-symbol" aria-hidden="true">
+        <svg viewBox="0 0 48 48" fill="none"><path d="M24 5 44 41H4L24 5Z" stroke="currentColor" stroke-width="2.5" stroke-linejoin="round"/><path d="M24 18v10m0 6h.01" stroke="currentColor" stroke-width="3" stroke-linecap="round"/></svg>
+      </div>
+      <p class="auth-eyebrow">REQUEST NOT COMPLETED</p>
+      <h1 id="error-title">Something went wrong</h1>
+      <p class="auth-description">BI Sentinel couldn’t complete that request. Your data and permissions have not been changed. Please try again, or return to the sign-in page.</p>
+      <p class="auth-reference" id="error-reference" hidden></p>
+      <div class="auth-actions">
+        <a class="auth-primary-action" href="/">Try again</a>
+        <a class="auth-secondary-action" href="/auth/sign-in">Return to sign in</a>
+      </div>
+      <p class="auth-footnote">If the problem continues, contact your BI Sentinel administrator.</p>
+    </section>
+    <footer class="auth-footer"><span>BI Sentinel</span><span>Governance, clarity, confidence.</span></footer>
+  </main>
+  <script>
+    const reference = new URLSearchParams(location.search).get("reference");
+    if (reference) {
+      const notice = document.querySelector("#error-reference");
+      notice.textContent = `Reference ID: ${reference}`;
+      notice.hidden = false;
+    }
+    if (new URLSearchParams(location.search).has("sign-in")) {
+      document.querySelector("#error-title").textContent = "Sign-in couldn’t be completed";
+      document.querySelector(".auth-description").textContent =
+        "Microsoft sign-in could not be completed. Return to BI Sentinel and try again. Your Power BI permissions have not been changed.";
+    }
+  </script>
+</body>
+</html>

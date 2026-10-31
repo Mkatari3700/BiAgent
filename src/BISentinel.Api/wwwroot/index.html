@@ -5,17 +5,37 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="BI Sentinel BI workspace modules">
   <title>BI Sentinel | BI Workspace</title>
-  <link rel="stylesheet" href="/styles.css?v=governance-summary-navigation-health-1">
-  <script src="/app.js?v=governance-summary-navigation-health-1" defer></script>
+  <link rel="stylesheet" href="/auth.css?v=branded-auth-and-error-pages-1">
+  <link rel="stylesheet" href="/styles.css?v=separate-governance-audit-pages-1">
+  <script src="/app.js?v=separate-governance-audit-pages-1" defer></script>
 </head>
 <body>
+  <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <symbol id="icon-review" viewBox="0 0 16 16"><path d="M4 1.5h5.5L13 5v8.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-11a1 1 0 0 1 1-1ZM9 2v3h3"/><path d="m5 9 1.6 1.6L10 7.2"/></symbol>
+    <symbol id="icon-shield" viewBox="0 0 16 16"><path d="M8 1 14 3v4c0 3.8-2.5 6.5-6 8-3.5-1.5-6-4.2-6-8V3l6-2Z"/><path d="m5.2 7.8 1.8 1.8 3.8-4"/></symbol>
+    <symbol id="icon-speedometer" viewBox="0 0 16 16"><path d="M2 12a6 6 0 1 1 12 0"/><path d="m8 9 3-3M4.5 12h7"/></symbol>
+    <symbol id="icon-document" viewBox="0 0 16 16"><path d="M3 1.5h6L13 5v9a.5.5 0 0 1-.5.5h-9A.5.5 0 0 1 3 14V2a.5.5 0 0 1 .5-.5ZM9 2v3h3"/><path d="M5 8h6M5 10.5h6M5 13h4"/></symbol>
+    <symbol id="icon-diagram" viewBox="0 0 16 16"><rect x="6" y="1" width="4" height="3" rx=".5"/><rect x="1" y="12" width="4" height="3" rx=".5"/><rect x="11" y="12" width="4" height="3" rx=".5"/><path d="M8 4v4M3 12V8h10v4"/></symbol>
+    <symbol id="icon-list-check" viewBox="0 0 16 16"><path d="M6 3h8M6 8h8M6 13h8"/><path d="m1.5 3 1 1L4 2.5M1.5 8l1 1L4 7.5M1.5 13l1 1L4 12.5"/></symbol>
+    <symbol id="icon-gear" viewBox="0 0 16 16"><path d="M9.6 1.5 10 3a5 5 0 0 1 1.2.7l1.5-.5 1.2 2-1 1.2v1.3l1 1.2-1.2 2-1.5-.5a5 5 0 0 1-1.2.7l-.4 1.5H7.2l-.4-1.5a5 5 0 0 1-1.2-.7l-1.5.5-1.2-2 1-1.2V6.4l-1-1.2 1.2-2 1.5.5A5 5 0 0 1 6.8 3l.4-1.5h2.4Z"/><circle cx="8.4" cy="7.1" r="1.7"/></symbol>
+    <symbol id="icon-play" viewBox="0 0 16 16"><path d="M4 2.5a1 1 0 0 1 1.5-.9l8 5a1.6 1.6 0 0 1 0 2.8l-8 5A1 1 0 0 1 4 13.5v-11Z"/></symbol>
+    <symbol id="icon-history" viewBox="0 0 16 16"><path d="M2 3v3h3"/><path d="M2.5 6a6 6 0 1 1-.2 3"/><path d="M8 4.5V8l2.5 1.5"/></symbol>
+    <symbol id="icon-chart" viewBox="0 0 16 16"><path d="M2 14V8h2v6M7 14V3h2v11M12 14V6h2v8M1 14.5h14"/></symbol>
+    <symbol id="icon-filter" viewBox="0 0 16 16"><path d="M1.5 2h13L9.5 7v5l-3 2V7L1.5 2Z"/></symbol>
+    <symbol id="icon-download" viewBox="0 0 16 16"><path d="M8 1.5v8m0 0 3-3m-3 3-3-3M2 10.5v3h12v-3"/></symbol>
+    <symbol id="icon-upload" viewBox="0 0 16 16"><path d="M8 10V2m0 0L5 5m3-3 3 3M2 10v3h12v-3"/></symbol>
+    <symbol id="icon-information" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="M8 7v4M8 4.5h.01"/></symbol>
+    <symbol id="icon-warning" viewBox="0 0 16 16"><path d="M7.1 1.8a1 1 0 0 1 1.8 0l6 10.7a1 1 0 0 1-.9 1.5H2a1 1 0 0 1-.9-1.5l6-10.7Z"/><path d="M8 5v4m0 2.2h.01"/></symbol>
+    <symbol id="icon-check" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="m4.5 8 2.2 2.2L11.8 5"/></symbol>
+    <symbol id="icon-list" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="13" height="13" rx="1.5"/><path d="M5 5h6M5 8h6M5 11h4"/></symbol>
+  </svg>
   <div id="app-loading-indicator" class="app-loading-indicator" role="status" aria-live="polite" aria-hidden="true" hidden>
     <span class="app-loading-spinner" aria-hidden="true"></span>
     <span id="app-loading-message">Working…</span>
   </div>
   <header class="topbar">
     <a class="brand" href="/" aria-label="BI Sentinel home">
-      <span class="brand-mark" aria-hidden="true">B</span>
+      <span class="brand-mark" aria-hidden="true"><img src="/brand-mark.svg" alt=""></span>
       <span>BI Sentinel <span class="brand-subtitle">BI Workspace</span></span>
     </a>
     <div id="account-controls" class="account-controls" hidden>
@@ -25,6 +45,22 @@
       </form>
     </div>
   </header>
+
+  <main id="application-state-page" class="application-state-page" aria-labelledby="application-state-title" hidden>
+    <section class="auth-card application-state-card">
+      <img class="auth-brand-mark" src="/brand-mark.svg" alt="">
+      <p class="auth-eyebrow">BI SENTINEL</p>
+      <h1 id="application-state-title">We couldn’t load your workspace</h1>
+      <p id="application-state-description">Your access could not be verified right now. Please try again. If the problem continues, contact your BI Sentinel administrator.</p>
+      <div class="auth-actions">
+        <button id="application-state-retry" class="auth-primary-action" type="button">Try again</button>
+        <form action="/auth/sign-out" method="post">
+          <button class="auth-secondary-action" type="submit">Return to sign in</button>
+        </form>
+      </div>
+      <p class="auth-footnote">Your Power BI data and workspace permissions have not been changed.</p>
+    </section>
+  </main>
 
   <div id="workspace-layout" class="workspace-layout">
     <aside class="sidebar" aria-label="Main navigation">
@@ -36,28 +72,28 @@
       </div>
       <nav id="main-navigation" class="sidebar-nav">
         <a id="reviews-navigation" class="sidebar-link" href="/reviews" data-module-navigation="reviews" hidden>
-          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 3.75h8l4 4v12.5H7a2 2 0 0 1-2-2v-12.5a2 2 0 0 1 2-2Z"/><path d="M15 3.75v4h4M9 13l2 2 4-4"/></svg></span><span>Power BI Project Review</span>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-review"></use></svg></span><span>Power BI Project Review</span>
         </a>
         <a class="sidebar-link" href="/modules/governance-audit" data-module-navigation="governanceAudit" data-admin-only="true" hidden>
-          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 8 3v5c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-3Z"/><path d="m9 12 2 2 4-4"/></svg></span><span>Governance Audit</span>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-shield"></use></svg></span><span>Governance Audit</span>
         </a>
         <a class="sidebar-link" href="/modules/performance-optimization" data-module-navigation="performanceOptimization" hidden>
-          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4.5 17a8 8 0 1 1 15 0"/><path d="m12 13 4-4M7 17h10"/></svg></span><span>Performance Optimization</span>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-speedometer"></use></svg></span><span>Performance Optimization</span>
         </a>
         <a class="sidebar-link" href="/modules/release-readiness" data-module-navigation="releaseReadiness" hidden>
-          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5 20 7v5c0 4.5-3.2 7.5-8 9-4.8-1.5-8-4.5-8-9V7l8-3.5Z"/><path d="m9 12 2 2 4-4"/></svg></span><span>Release Readiness</span>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-list-check"></use></svg></span><span>Release Readiness</span>
         </a>
         <a class="sidebar-link" href="/modules/documentation-generator" data-module-navigation="documentationGenerator" hidden>
-          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6.5 3.75h8l4 4v12.5h-12a2 2 0 0 1-2-2v-12.5a2 2 0 0 1 2-2Z"/><path d="M14.5 3.75v4h4M8 12h7M8 15.5h7"/></svg></span><span>Documentation Generator</span>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-document"></use></svg></span><span>Documentation Generator</span>
         </a>
         <a class="sidebar-link" href="/modules/architecture-review" data-module-navigation="architectureReview" hidden>
-          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="5" rx="1"/><rect x="3.5" y="15.5" width="6" height="5" rx="1"/><rect x="14.5" y="15.5" width="6" height="5" rx="1"/><path d="M12 8.5v3.5M6.5 15.5V12h11v3.5"/></svg></span><span>Architecture Review</span>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-diagram"></use></svg></span><span>Architecture Review</span>
         </a>
         <a class="sidebar-link" href="/modules/bi-delivery-manager" data-module-navigation="biDeliveryManager" hidden>
-          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h10M4 12h7M4 17h10M16 9l4 3-4 3"/></svg></span><span>BI Delivery Manager</span>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-play"></use></svg></span><span>BI Delivery Manager</span>
         </a>
         <a id="administration-navigation" class="sidebar-link" href="/admin/workspace">
-          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19 13.5 1.5 1.2-1.5 2.6-1.8-.5-1.4 1v1.7h-3l-.5-1.7-1.7-.7-1.6.8-2.1-2.1.8-1.6-.7-1.7-1.7-.5v-3l1.7-.5.7-1.7-.8-1.6 2.1-2.1 1.6.8 1.7-.7.5-1.7h3l.5 1.7 1.7.7 1.6-.8 2.1 2.1-.8 1.6.7 1.7 1.7.5v3Z" transform="translate(-1 -1) scale(.96)"/></svg></span>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-gear"></use></svg></span>
           <span>Administration</span>
         </a>
         <p id="module-navigation-status" class="sidebar-status" role="status" aria-live="polite" hidden></p>
@@ -286,10 +322,26 @@
           <p class="intro-copy">Run a read-only inventory of explicitly approved Power BI workspaces, their access, reports, dashboards, and semantic models.</p>
         </div>
       </header>
+      <nav id="governance-page-navigation" class="governance-page-navigation" aria-label="Governance Audit pages">
+        <button id="governance-page-run-tab" class="governance-page-tab is-active" type="button" aria-current="page" data-governance-page-tab="run">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-play"></use></svg><span>Run audit</span>
+        </button>
+        <button id="governance-page-history-tab" class="governance-page-tab" type="button" data-governance-page-tab="history">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-history"></use></svg><span>Audit history</span>
+        </button>
+        <button id="governance-page-results-tab" class="governance-page-tab" type="button" data-governance-page-tab="results" disabled>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-chart"></use></svg><span>Results</span>
+        </button>
+      </nav>
+      <section id="governance-run-page" class="governance-page" data-governance-page="run" aria-label="Run a governance audit">
       <div class="configuration-card">
         <p id="governance-status" class="status" role="status" aria-live="polite">Authorize Power BI access and select an approved workspace to begin.</p>
         <p id="governance-error" class="error-banner" role="alert" hidden></p>
         <p class="dashboard-description">Only the workspace IDs saved in Governance Audit Administration are scanned. The audit never changes Power BI content or access. Connect your Power BI account in the first step to begin.</p>
+        <div id="governance-workspace-load-status" class="governance-workspace-load-status" role="status" aria-live="polite" hidden>
+          <span class="governance-inline-spinner" aria-hidden="true"></span>
+          <span id="governance-workspace-load-message"></span>
+        </div>
         <nav class="governance-scan-tabs" role="tablist" aria-label="Governance scan setup">
           <button id="governance-scan-tab-access" class="admin-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="governance-scan-panel-access" data-governance-scan-tab="access">Power BI access</button>
           <button id="governance-scan-tab-workspaces" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="governance-scan-panel-workspaces" data-governance-scan-tab="workspaces" disabled>Workspaces</button>
@@ -309,7 +361,7 @@
             <button id="governance-access-next" class="button button-primary" type="button" disabled>Next: workspaces</button>
           </div>
         </section>
-        <section id="governance-scan-panel-workspaces" class="configuration-card governance-scan-panel" role="tabpanel" aria-labelledby="governance-scan-tab-workspaces" data-governance-scan-panel="workspaces">
+        <section id="governance-scan-panel-workspaces" class="configuration-card governance-scan-panel" role="tabpanel" aria-labelledby="governance-scan-tab-workspaces" data-governance-scan-panel="workspaces" hidden>
           <h2>Choose workspaces</h2>
           <p class="dashboard-description">Select from the workspaces approved by an administrator. Names are returned by Power BI; the saved allowlist cannot be bypassed here.</p>
           <div class="governance-workspace-filters" aria-label="Filter approved workspaces">
@@ -374,15 +426,24 @@
           </div>
         </section>
       </div>
-      <details id="governance-history-panel" class="configuration-card governance-result-aux">
-        <summary>Audit history</summary>
-        <p class="dashboard-description">Open a saved audit snapshot to review its findings and inventory.</p>
+      </section>
+      <section id="governance-history-page" class="governance-page" data-governance-page="history" aria-labelledby="governance-history-title" hidden>
+        <div class="governance-page-heading">
+          <div><p class="eyebrow">SAVED AUDITS</p><h2 id="governance-history-title">Audit history</h2></div>
+          <p>Open any saved run to review its findings and inventory.</p>
+        </div>
+        <label class="governance-history-search">Search audit history
+          <input id="governance-history-search" type="search" placeholder="Search date, user, or result counts">
+        </label>
+        <p id="governance-history-count" class="result-count" role="status" aria-live="polite"></p>
         <div class="dashboard-table-wrap"><table class="dashboard-table">
           <thead><tr><th>Completed</th><th>Scanned by</th><th>Workspaces</th><th>Reports</th><th>Dashboards</th><th>Semantic models</th><th>Apps</th><th>Gateways</th><th>Findings</th><th>Action</th></tr></thead>
           <tbody id="governance-history-rows"></tbody>
         </table></div>
         <p id="governance-history-empty" class="dashboard-empty" hidden>No saved Governance Audit runs yet.</p>
-      </details>
+        <p id="governance-history-error" class="error-banner" role="alert" hidden></p>
+      </section>
+      <section id="governance-results-page" class="governance-page" data-governance-page="results" aria-label="Governance audit results" hidden>
       <div id="governance-results" hidden>
         <section class="configuration-card governance-results-overview" aria-labelledby="governance-results-title">
           <div class="governance-results-heading">
@@ -464,6 +525,7 @@
           </div>
         </div>
       </div>
+      </section>
     </section>
     <dialog id="governance-scan-confirmation" class="review-success-dialog" aria-labelledby="governance-scan-confirmation-title">
       <div class="review-success-content">

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="Secure sign-in to BI Sentinel">
+  <title>Sign in | BI Sentinel</title>
+  <link rel="stylesheet" href="/auth.css?v=branded-auth-and-error-pages-1">
+</head>
+<body class="auth-page">
+  <main class="auth-shell">
+    <section class="auth-card" aria-labelledby="sign-in-title">
+      <a class="auth-brand" href="/" aria-label="BI Sentinel home">
+        <img class="auth-brand-mark" src="/brand-mark.svg" alt="">
+        <span>BI Sentinel <small>BI Workspace</small></span>
+      </a>
+      <div class="auth-illustration" aria-hidden="true">
+        <span class="auth-illustration-orbit auth-illustration-orbit-one"></span>
+        <span class="auth-illustration-orbit auth-illustration-orbit-two"></span>
+        <svg viewBox="0 0 96 96" fill="none">
+          <path d="M48 9 78 20v20c0 20-12.5 34-30 41C30.5 74 18 60 18 40V20L48 9Z" fill="url(#auth-shield-fill)" stroke="url(#auth-shield-stroke)" stroke-width="2.5"/>
+          <path d="M33 59V46h8v13h-8Zm12 0V34h8v25h-8Zm12 0V42h8v17h-8Z" fill="#F2FFFF"/>
+          <path d="m33 40 13-9 9 4 12-13" stroke="#75F0DA" stroke-linecap="round" stroke-linejoin="round" stroke-width="3" class="auth-illustration-signal"/>
+          <circle cx="67" cy="22" r="4" fill="#C5FFF4" class="auth-illustration-spark"/>
+          <defs>
+            <linearGradient id="auth-shield-fill" x1="20" y1="11" x2="78" y2="83" gradientUnits="userSpaceOnUse"><stop stop-color="#214C76"/><stop offset="1" stop-color="#152B49"/></linearGradient>
+            <linearGradient id="auth-shield-stroke" x1="18" y1="9" x2="79" y2="81" gradientUnits="userSpaceOnUse"><stop stop-color="#68E3D0"/><stop offset="1" stop-color="#5498F2"/></linearGradient>
+          </defs>
+        </svg>
+      </div>
+      <p class="auth-eyebrow">YOUR POWER BI GOVERNANCE WORKSPACE</p>
+      <h1 id="sign-in-title">{{SIGN_IN_HEADING}}</h1>
+      <p class="auth-description">{{SIGN_IN_MESSAGE}}</p>
+      <a class="auth-primary-action auth-sign-in-action" href="{{SIGN_IN_URL}}">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M13 5 20 12l-7 7M20 12H4"/></svg>
+        <span>Continue with Microsoft</span>
+      </a>
+      <div class="auth-assurance">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2 17 5v4.5c0 4.1-2.8 7-7 8.5-4.2-1.5-7-4.4-7-8.5V5l7-3Z"/><path d="m7 9.5 2 2 4-4"/></svg>
+        <span>Secure access for your organization</span>
+      </div>
+      <p class="auth-footnote">Your organization’s Microsoft sign-in protects access to BI Sentinel. Power BI access is authorized separately when you use Governance Audit.</p>
+    </section>
+    <footer class="auth-footer"><span>BI Sentinel</span><span>Governance, clarity, confidence.</span></footer>
+  </main>
+</body>
+</html>

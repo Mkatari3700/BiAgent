@@ -3,6 +3,8 @@ using BISentinel.Api.GovernanceAudit;
 using BISentinel.Api.Reviews;
 using BISentinel.Api.ReviewHistory;
 using BISentinel.Api.Security;
+using System.Text.Encodings.Web;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.Data.SqlClient;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Http.Features;
@@ -122,22 +124,7 @@ if (entraAuthenticationEnabled)
                     context.Request.ContentType ?? "(none)");
 
                 context.HandleResponse();
-                context.Response.StatusCode = StatusCodes.Status400BadRequest;
-                context.Response.ContentType = "text/html; charset=utf-8";
-                await context.Response.WriteAsync(
-                    """
-                    <!doctype html>
-                    <html lang="en">
-                    <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign-in could not be completed</title></head>
-                    <body style="font-family:Segoe UI,Arial,sans-serif;max-width:680px;margin:12vh auto;padding:24px;color:#17243a">
-                      <h1>Power BI authorization could not be completed</h1>
-                      <p>Return to Governance Audit and select “Authorize Power BI read access” again.</p>
-                      <p>For local development, open BI Sentinel at <a href="https://localhost:7053/modules/governance-audit">https://localhost:7053/modules/governance-audit</a>. The Entra app registration must include the exact redirect URI <code>https://localhost:7053/signin-oidc</code>.</p>
-                      <p>If the problem continues, check the BI Sentinel server log for the callback method, URL, and content type. Do not share authorization codes or sign-in URLs.</p>
-                    </body>
-                    </html>
-                    """,
-                    context.HttpContext.RequestAborted);
+                context.Response.Redirect("/auth/error?sign-in=true");
             };
         });
     builder.Services.Configure<CookieAuthenticationOptions>(
@@ -265,6 +252,54 @@ builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
+app.UseExceptionHandler(errorApp =>
+{
+    errorApp.Run(async context =>
+    {
+        var exception = context.Features.Get<IExceptionHandlerFeature>()?.Error;
+        var logger = context.RequestServices
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("UnhandledRequest");
+        logger.LogError(exception, "Unhandled request failure. Reference ID {ReferenceId}.", context.TraceIdentifier);
+
+        if (context.Response.HasStarted)
+        {
+            return;
+        }
+
+        context.Response.Clear();
+        context.Response.StatusCode = StatusCodes.Status500InternalServerError;
+        if (context.Request.Path.StartsWithSegments("/api") ||
+            context.Request.Path.StartsWithSegments("/mcp") ||
+            context.Request.Headers.Accept.Any(value => value?.Contains(
+                "application/json",
+                StringComparison.OrdinalIgnoreCase) == true))
+        {
+            var problem = new ProblemDetails
+            {
+                Status = StatusCodes.Status500InternalServerError,
+                Title = "Something went wrong",
+                Detail = "BI Sentinel could not complete that request. Try again or contact your administrator."
+            };
+            problem.Extensions["referenceId"] = context.TraceIdentifier;
+            await context.Response.WriteAsJsonAsync(problem, context.RequestAborted);
+            return;
+        }
+
+        var webRoot = app.Environment.WebRootPath ??
+            Path.Combine(app.Environment.ContentRootPath, "wwwroot");
+        var errorPage = await File.ReadAllTextAsync(
+            Path.Combine(webRoot, "error.html"),
+            context.RequestAborted);
+        errorPage = errorPage.Replace(
+            "{{REFERENCE_ID}}",
+            HtmlEncoder.Default.Encode(context.TraceIdentifier),
+            StringComparison.Ordinal);
+        context.Response.ContentType = "text/html; charset=utf-8";
+        await context.Response.WriteAsync(errorPage, context.RequestAborted);
+    });
+});
+
 if (app.Environment.IsDevelopment())
 {
     app.UseHttpsRedirection();
@@ -279,9 +314,14 @@ if (entraAuthenticationEnabled)
         var path = context.Request.Path;
         var isPublicPath =
             path == "/auth/sign-in" ||
+            path == "/auth/continue" ||
+            path == "/auth/error" ||
             path == "/auth/sign-out" ||
             path == "/auth/signed-out" ||
             path == "/api/auth/session" ||
+            path == "/auth.css" ||
+            path == "/styles.css" ||
+            path == "/brand-mark.svg" ||
             path == "/health/live" ||
             path == "/health/ready" ||
             path == "/signin-oidc" ||
@@ -317,21 +357,17 @@ if (entraAuthenticationEnabled)
                 context.Request.Path,
                 context.Request.QueryString)
             : "/";
-        await context.ChallengeAsync(
-            OpenIdConnectDefaults.AuthenticationScheme,
-            new Microsoft.AspNetCore.Authentication.AuthenticationProperties
-            {
-                RedirectUri = redirectUri
-            });
+        context.Response.Redirect(
+            $"/auth/sign-in?returnUrl={Uri.EscapeDataString(redirectUri)}");
     });
 }
+app.UseStaticFiles();
 if (governanceAuditEnabled)
 {
     app.UseMiddleware<McpRequestAuditMiddleware>();
 }
 app.UseAuthorization();
 app.UseDefaultFiles();
-app.UseStaticFiles();
 app.UseMiddleware<ReviewModuleAvailabilityMiddleware>();
 
 if (app.Environment.IsDevelopment())
@@ -405,17 +441,42 @@ if (entraAuthenticationEnabled)
 {
     app.MapGet(
         "/auth/sign-in",
-        (HttpContext httpContext) => httpContext.User.Identity?.IsAuthenticated == true
-            ? Results.LocalRedirect("/")
-            : Results.Challenge(
-                new Microsoft.AspNetCore.Authentication.AuthenticationProperties
-                {
-                    RedirectUri = "/"
-                },
-                [OpenIdConnectDefaults.AuthenticationScheme]))
+        (HttpContext httpContext, string? returnUrl, bool? signedOut) =>
+            CreateSignInPageAsync(
+                httpContext,
+                app.Environment,
+                returnUrl,
+                signedOut == true))
         .AllowAnonymous()
         .WithTags("Authentication")
-        .WithSummary("Sign in with Microsoft Entra ID");
+        .WithSummary("Show the BI Sentinel sign-in page");
+
+    app.MapGet(
+        "/auth/continue",
+        (HttpContext httpContext, string? returnUrl) =>
+        {
+            var destination = NormalizeLocalReturnUrl(returnUrl);
+            return httpContext.User.Identity?.IsAuthenticated == true
+                ? Results.LocalRedirect(destination)
+                : Results.Challenge(
+                    new Microsoft.AspNetCore.Authentication.AuthenticationProperties
+                    {
+                        RedirectUri = destination
+                    },
+                    [OpenIdConnectDefaults.AuthenticationScheme]);
+        })
+        .AllowAnonymous()
+        .WithTags("Authentication")
+        .WithSummary("Continue to Microsoft Entra sign-in");
+
+    app.MapGet(
+        "/auth/error",
+        (IWebHostEnvironment environment) => Results.File(
+            Path.Combine(environment.WebRootPath ?? Path.Combine(environment.ContentRootPath, "wwwroot"), "error.html"),
+            contentType: "text/html; charset=utf-8"))
+        .AllowAnonymous()
+        .WithTags("Authentication")
+        .WithSummary("Show the standard BI Sentinel error page");
 
     app.MapPost(
         "/auth/sign-out",
@@ -434,22 +495,14 @@ if (entraAuthenticationEnabled)
 
     app.MapGet(
         "/auth/signed-out",
-        () => Results.Content(
-            """
-            <!doctype html>
-            <html lang="en">
-            <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Signed out | BI Sentinel</title></head>
-            <body style="font-family:Segoe UI,Arial,sans-serif;max-width:640px;margin:12vh auto;padding:24px;color:#17243a">
-              <h1>You are signed out</h1>
-              <p>Your BI Sentinel session has ended.</p>
-              <a href="/auth/sign-in">Sign in again</a>
-            </body>
-            </html>
-            """,
-            "text/html"))
+        (Delegate)((HttpContext httpContext) => CreateSignInPageAsync(
+            httpContext,
+            app.Environment,
+            "/",
+            signedOut: true)))
         .AllowAnonymous()
         .WithTags("Authentication")
-        .WithSummary("Show the signed-out confirmation");
+        .WithSummary("Return to the BI Sentinel sign-in page after signing out");
 
     app.MapGet(
         "/api/admin/application-users",
@@ -2218,6 +2271,61 @@ app.MapGet(
 
 app.MapFallbackToFile("index.html");
 app.Run();
+
+static string NormalizeLocalReturnUrl(string? returnUrl)
+{
+    if (string.IsNullOrWhiteSpace(returnUrl))
+    {
+        return "/";
+    }
+
+    var candidate = returnUrl.Trim();
+    var path = candidate.Split('?', '#')[0];
+    if (candidate[0] != '/' ||
+        candidate.StartsWith("//", StringComparison.Ordinal) ||
+        candidate.StartsWith("/\\", StringComparison.Ordinal) ||
+        candidate.Contains('\\') ||
+        candidate.Any(char.IsControl) ||
+        path.StartsWith("/auth/", StringComparison.OrdinalIgnoreCase))
+    {
+        return "/";
+    }
+
+    return candidate;
+}
+
+static async Task<IResult> CreateSignInPageAsync(
+    HttpContext httpContext,
+    IWebHostEnvironment environment,
+    string? returnUrl,
+    bool signedOut)
+{
+    var destination = NormalizeLocalReturnUrl(returnUrl);
+    if (httpContext.User.Identity?.IsAuthenticated == true && !signedOut)
+    {
+        return Results.LocalRedirect(destination);
+    }
+
+    var webRoot = environment.WebRootPath ??
+        Path.Combine(environment.ContentRootPath, "wwwroot");
+    var page = await File.ReadAllTextAsync(
+        Path.Combine(webRoot, "sign-in.html"),
+        httpContext.RequestAborted);
+    var signInUrl = $"/auth/continue?returnUrl={Uri.EscapeDataString(destination)}";
+    page = page
+        .Replace("{{SIGN_IN_URL}}", signInUrl, StringComparison.Ordinal)
+        .Replace(
+            "{{SIGN_IN_HEADING}}",
+            signedOut ? "You’re signed out" : "Welcome to your BI workspace",
+            StringComparison.Ordinal)
+        .Replace(
+            "{{SIGN_IN_MESSAGE}}",
+            signedOut
+                ? "Your BI Sentinel session has ended. Sign in with your organization account to continue."
+                : "Sign in securely with your organization account to review and govern your Power BI environment.",
+            StringComparison.Ordinal);
+    return Results.Content(page, "text/html; charset=utf-8");
+}
 
 static bool IsValidRegex(string pattern)
 {
