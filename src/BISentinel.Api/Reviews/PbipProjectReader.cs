@@ -95,10 +95,10 @@ public sealed class PbipProjectReader : IPbipProjectReader
             Path.Combine(modelDefinitionDirectory, "relationships.tmdl")
         };
 
-        var tables = Directory.GetFiles(tablesDirectory, "*.tmdl", SearchOption.TopDirectoryOnly)
-            .Select(ParseTable)
-            .ToArray();
-        if (tables.Length == 0)
+        var tables = PbipProjectMetadata.DeduplicateTables(
+            Directory.GetFiles(tablesDirectory, "*.tmdl", SearchOption.TopDirectoryOnly)
+                .Select(ParseTable));
+        if (tables.Count == 0)
         {
             throw new InvalidDataException("The semantic model contains no table definition files.");
         }
@@ -112,7 +112,8 @@ public sealed class PbipProjectReader : IPbipProjectReader
             Path.GetFileNameWithoutExtension(projectFiles[0]),
             requiredFiles,
             tables,
-            relationships);
+            PbipProjectMetadata.DeduplicateRelationships(relationships),
+            ReportReferences: ReadReportReferences(Path.Combine(reportDirectory, "definition")));
     }
 
     private static PbipProjectModel ReadPbirProject(string projectRoot)
@@ -143,24 +144,23 @@ public sealed class PbipProjectReader : IPbipProjectReader
     private static PbipProjectModel ReadExtractedProject(string projectRoot)
     {
         var modelFiles = Directory.GetFiles(projectRoot, "*.tmdl", SearchOption.AllDirectories);
-        var tables = modelFiles
+        var tables = PbipProjectMetadata.DeduplicateTables(modelFiles
             .Where(path => File.ReadLines(path).Any(line => TableDeclaration.IsMatch(line)))
             .Select(path =>
             {
                 var table = ParseTable(path);
                 return table with { FileName = Path.GetRelativePath(projectRoot, path) };
-            })
-            .ToArray();
-        if (tables.Length == 0)
+            }));
+        if (tables.Count == 0)
         {
             throw new InvalidDataException(
                 "The extracted Power BI model does not contain TMDL table definitions. Configure pbi-tools to serialize models as TMDL.");
         }
 
-        var relationships = modelFiles
-            .Where(path => Path.GetFileName(path).Equals("relationships.tmdl", StringComparison.OrdinalIgnoreCase))
-            .SelectMany(ParseRelationships)
-            .ToArray();
+        var relationships = PbipProjectMetadata.DeduplicateRelationships(
+            modelFiles
+                .Where(path => Path.GetFileName(path).Equals("relationships.tmdl", StringComparison.OrdinalIgnoreCase))
+                .SelectMany(ParseRelationships));
 
         return new PbipProjectModel(
             Path.GetFileName(projectRoot),
@@ -220,6 +220,13 @@ public sealed class PbipProjectReader : IPbipProjectReader
         throw new InvalidDataException(
             "The PBIP report must reference a semantic model by project path for this review.");
     }
+
+    private static IReadOnlyList<string>? ReadReportReferences(string reportDefinitionDirectory) =>
+        Directory.Exists(reportDefinitionDirectory)
+            ? Directory.GetFiles(reportDefinitionDirectory, "*.json", SearchOption.AllDirectories)
+                .Select(File.ReadAllText)
+                .ToArray()
+            : null;
 
     private static string ResolveDirectory(string baseDirectory, string projectRoot, string relativePath)
     {
@@ -376,4 +383,63 @@ public sealed class PbipProjectReader : IPbipProjectReader
         match.Groups["quoted"].Success
             ? match.Groups["quoted"].Value
             : match.Groups["plain"].Value;
+}
+
+internal static class PbipProjectMetadata
+{
+    public static IReadOnlyList<ModelTable> DeduplicateTables(IEnumerable<ModelTable> tables) =>
+        tables
+            .GroupBy(table => table.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var candidates = group
+                    .OrderBy(table => table.FileName, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var columns = candidates
+                    .SelectMany(table => table.Columns)
+                    .GroupBy(column => column.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(columnsForName => columnsForName.First())
+                    .OrderBy(column => column.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+                var measures = candidates
+                    .SelectMany(table => table.Measures)
+                    .GroupBy(measure => measure.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(measuresForName => measuresForName
+                        .OrderByDescending(measure => measure.Expression.Length)
+                        .First())
+                    .OrderBy(measure => measure.Name, StringComparer.OrdinalIgnoreCase)
+                    .ToArray();
+
+                return candidates[0] with { Columns = columns, Measures = measures };
+            })
+            .OrderBy(table => table.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+    public static IReadOnlyList<ModelRelationship> DeduplicateRelationships(
+        IEnumerable<ModelRelationship> relationships) =>
+        relationships
+            .GroupBy(relationship =>
+            {
+                var from = $"{relationship.FromTable}\0{relationship.FromColumn}";
+                var to = $"{relationship.ToTable}\0{relationship.ToColumn}";
+                var (first, second) = StringComparer.OrdinalIgnoreCase.Compare(from, to) <= 0
+                    ? (from, to)
+                    : (to, from);
+                return $"{first}\u001e{second}";
+            }, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var relationship = group
+                    .OrderBy(item => item.FromTable, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(item => item.FromColumn, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(item => item.ToTable, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(item => item.ToColumn, StringComparer.OrdinalIgnoreCase)
+                    .First();
+                return relationship with { IsBidirectional = group.Any(item => item.IsBidirectional) };
+            })
+            .OrderBy(item => item.FromTable, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.FromColumn, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.ToTable, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.ToColumn, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
 }

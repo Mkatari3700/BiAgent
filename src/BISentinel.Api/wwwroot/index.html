@@ -5,10 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="BI Sentinel BI workspace modules">
   <title>BI Sentinel | BI Workspace</title>
-  <link rel="stylesheet" href="/styles.css?v=workspace-layout-4">
-  <script src="/app.js?v=workspace-layout-4" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=governance-summary-navigation-health-1">
+  <script src="/app.js?v=governance-summary-navigation-health-1" defer></script>
 </head>
 <body>
+  <div id="app-loading-indicator" class="app-loading-indicator" role="status" aria-live="polite" aria-hidden="true" hidden>
+    <span class="app-loading-spinner" aria-hidden="true"></span>
+    <span id="app-loading-message">Working…</span>
+  </div>
   <header class="topbar">
     <a class="brand" href="/" aria-label="BI Sentinel home">
       <span class="brand-mark" aria-hidden="true">B</span>
@@ -32,28 +36,28 @@
       </div>
       <nav id="main-navigation" class="sidebar-nav">
         <a id="reviews-navigation" class="sidebar-link" href="/reviews" data-module-navigation="reviews" hidden>
-          <span class="sidebar-icon" aria-hidden="true">R</span><span>Power BI Project Review</span>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 3.75h8l4 4v12.5H7a2 2 0 0 1-2-2v-12.5a2 2 0 0 1 2-2Z"/><path d="M15 3.75v4h4M9 13l2 2 4-4"/></svg></span><span>Power BI Project Review</span>
         </a>
-        <a class="sidebar-link" href="/modules/governance-audit" data-module-navigation="governanceAudit" hidden>
-          <span class="sidebar-icon" aria-hidden="true">G</span><span>Governance Audit</span>
+        <a class="sidebar-link" href="/modules/governance-audit" data-module-navigation="governanceAudit" data-admin-only="true" hidden>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 8 3v5c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-3Z"/><path d="m9 12 2 2 4-4"/></svg></span><span>Governance Audit</span>
         </a>
         <a class="sidebar-link" href="/modules/performance-optimization" data-module-navigation="performanceOptimization" hidden>
-          <span class="sidebar-icon" aria-hidden="true">P</span><span>Performance Optimization</span>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4.5 17a8 8 0 1 1 15 0"/><path d="m12 13 4-4M7 17h10"/></svg></span><span>Performance Optimization</span>
         </a>
         <a class="sidebar-link" href="/modules/release-readiness" data-module-navigation="releaseReadiness" hidden>
-          <span class="sidebar-icon" aria-hidden="true">R</span><span>Release Readiness</span>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3.5 20 7v5c0 4.5-3.2 7.5-8 9-4.8-1.5-8-4.5-8-9V7l8-3.5Z"/><path d="m9 12 2 2 4-4"/></svg></span><span>Release Readiness</span>
         </a>
         <a class="sidebar-link" href="/modules/documentation-generator" data-module-navigation="documentationGenerator" hidden>
-          <span class="sidebar-icon" aria-hidden="true">D</span><span>Documentation Generator</span>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6.5 3.75h8l4 4v12.5h-12a2 2 0 0 1-2-2v-12.5a2 2 0 0 1 2-2Z"/><path d="M14.5 3.75v4h4M8 12h7M8 15.5h7"/></svg></span><span>Documentation Generator</span>
         </a>
         <a class="sidebar-link" href="/modules/architecture-review" data-module-navigation="architectureReview" hidden>
-          <span class="sidebar-icon" aria-hidden="true">A</span><span>Architecture Review</span>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="5" rx="1"/><rect x="3.5" y="15.5" width="6" height="5" rx="1"/><rect x="14.5" y="15.5" width="6" height="5" rx="1"/><path d="M12 8.5v3.5M6.5 15.5V12h11v3.5"/></svg></span><span>Architecture Review</span>
         </a>
         <a class="sidebar-link" href="/modules/bi-delivery-manager" data-module-navigation="biDeliveryManager" hidden>
-          <span class="sidebar-icon" aria-hidden="true">B</span><span>BI Delivery Manager</span>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 7h10M4 12h7M4 17h10M16 9l4 3-4 3"/></svg></span><span>BI Delivery Manager</span>
         </a>
         <a id="administration-navigation" class="sidebar-link" href="/admin/workspace">
-          <span class="sidebar-icon" aria-hidden="true">A</span>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="m19 13.5 1.5 1.2-1.5 2.6-1.8-.5-1.4 1v1.7h-3l-.5-1.7-1.7-.7-1.6.8-2.1-2.1.8-1.6-.7-1.7-1.7-.5v-3l1.7-.5.7-1.7-.8-1.6 2.1-2.1 1.6.8 1.7-.7.5-1.7h3l.5 1.7 1.7.7 1.6-.8 2.1 2.1-.8 1.6.7 1.7 1.7.5v3Z" transform="translate(-1 -1) scale(.96)"/></svg></span>
           <span>Administration</span>
         </a>
         <p id="module-navigation-status" class="sidebar-status" role="status" aria-live="polite" hidden></p>
@@ -90,7 +94,7 @@
           <span>Stable project ID <small>(optional)</small></span>
           <input id="project-id" type="text" maxlength="100" placeholder="Defaults to the uploaded file name">
         </label>
-        <button id="upload-project" class="button button-primary" type="button">Upload &amp; review</button>
+        <button id="upload-project" class="button button-primary" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 14v5h14v-5"/></svg>Upload &amp; review</button>
       </div>
       <div class="upload-guidance">
         <p><strong>Preferred — PBIP:</strong> upload a ZIP of the entire project folder, preserving its internal folder structure and every referenced report/model folder. A lone <code>.pbip</code> descriptor is not a complete project.</p>
@@ -125,7 +129,7 @@
       <form id="review-search-form" class="history-search">
         <label for="review-search">Search by project name</label>
         <input id="review-search" type="search" maxlength="400" placeholder="Enter a project name">
-        <button id="search-reviews" class="button button-secondary" type="submit">Search reviews</button>
+        <button id="search-reviews" class="button button-secondary" type="submit"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.5 15.5 4 4"/></svg>Search reviews</button>
       </form>
       <label for="review-history">Matching saved reviews</label>
       <select id="review-history">
@@ -137,10 +141,10 @@
       <div class="section-heading">
         <div>
           <p class="eyebrow">FEEDBACK WORK QUEUE</p>
-          <h2 id="dashboard-title">Review dashboard</h2>
-          <p class="dashboard-description">One row per saved review run. A run is Closed when all its findings have submitted feedback; reopen it to return submitted responses to Waiting.</p>
+          <h2 id="dashboard-title">My submitted reviews</h2>
+          <p id="dashboard-description" class="dashboard-description">Track your submitted reviews and read manager, lead, or administrator responses.</p>
         </div>
-        <button id="refresh-dashboard" class="button button-secondary" type="button">Refresh</button>
+        <button id="refresh-dashboard" class="button button-secondary" type="button"><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8a7.5 7.5 0 0 0-13.2-1.5L4 9m0 0V5m0 4h4M5 16a7.5 7.5 0 0 0 13.2 1.5L20 15m0 0v4m0-4h-4"/></svg>Refresh</button>
       </div>
       <div class="dashboard-tabs" role="tablist" aria-label="Review feedback status">
         <button id="waiting-tab" class="dashboard-tab" type="button" role="tab" aria-selected="true">
@@ -168,29 +172,34 @@
 
     <section id="overview" class="overview" aria-label="Review summary" hidden>
       <div class="summary-card summary-project">
+        <span class="summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3.5 7.5h7l2 2h8v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-11Z"/><path d="M3.5 7.5v-2a2 2 0 0 1 2-2h4l2 2h5"/></svg></span>
         <span class="summary-label">PROJECT</span>
         <strong id="project-name">—</strong>
         <span class="summary-note">Uploaded artifact</span>
       </div>
       <div class="summary-card">
+        <span class="summary-icon summary-icon-alert" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3.5 9 16H3l9-16Z"/><path d="M12 9v4.5m0 3h.01"/></svg></span>
         <span class="summary-label">FINDINGS</span>
         <strong id="finding-count">0</strong>
         <span class="summary-note">Advisory results</span>
       </div>
       <div class="summary-card">
+        <span class="summary-icon summary-icon-table" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 10h17M9 4.5v15m6-15v15"/></svg></span>
         <span class="summary-label">MODEL TABLES</span>
         <strong id="table-count">0</strong>
-        <span class="summary-note">Generated date tables excluded</span>
+        <span class="summary-note">Unique tables · generated date tables excluded</span>
       </div>
       <div class="summary-card">
+        <span class="summary-icon summary-icon-measure" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 4h10M7 20h10M15.5 4c0 5-7 6-7 11 0 2.5 2 5 7 5"/></svg></span>
         <span class="summary-label">MEASURES</span>
         <strong id="measure-count">0</strong>
-        <span class="summary-note">Explicit model measures</span>
+        <span class="summary-note">Unique explicit model measures</span>
       </div>
       <div class="summary-card">
+        <span class="summary-icon summary-icon-relationship" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="m8.3 10.9 7.4-3.8m-7.4 5.9 7.4 3.8"/></svg></span>
         <span class="summary-label">RELATIONSHIPS</span>
         <strong id="relationship-count">0</strong>
-        <span class="summary-note">Non-generated relationships</span>
+        <span class="summary-note">Unique model links · counted once</span>
       </div>
     </section>
 
@@ -200,7 +209,28 @@
           <p class="eyebrow">REVIEW RESULTS</p>
           <h2 id="findings-title">Findings</h2>
         </div>
-        <button id="export-feedback" class="button button-secondary" type="button" disabled>Export feedback</button>
+        <button id="export-feedback" class="button button-secondary" type="button" disabled><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4"/></svg>Export feedback</button>
+      </div>
+
+      <div id="finding-category-tabs" class="finding-category-tabs" role="tablist" aria-label="Finding categories">
+        <button class="finding-category-tab" type="button" role="tab" aria-selected="true" data-finding-category="all">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg><span>All</span><span class="category-count" data-category-count="all">0</span>
+        </button>
+        <button class="finding-category-tab" type="button" role="tab" aria-selected="false" data-finding-category="tables">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 10h17M9 4.5v15"/></svg><span>Tables</span><span class="category-count" data-category-count="tables">0</span>
+        </button>
+        <button class="finding-category-tab" type="button" role="tab" aria-selected="false" data-finding-category="columns">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v14H5zM9 5v14m6-14v14M5 10h14m-14 4h14"/></svg><span>Columns</span><span class="category-count" data-category-count="columns">0</span>
+        </button>
+        <button class="finding-category-tab" type="button" role="tab" aria-selected="false" data-finding-category="measures">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4h10M7 20h10M15.5 4c0 5-7 6-7 11 0 2.5 2 5 7 5"/></svg><span>Measures</span><span class="category-count" data-category-count="measures">0</span>
+        </button>
+        <button class="finding-category-tab" type="button" role="tab" aria-selected="false" data-finding-category="relationships">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="m8.3 10.9 7.4-3.8m-7.4 5.9 7.4 3.8"/></svg><span>Relationships</span><span class="category-count" data-category-count="relationships">0</span>
+        </button>
+        <button class="finding-category-tab" type="button" role="tab" aria-selected="false" data-finding-category="other">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5m0-8h.01"/></svg><span>Other</span><span class="category-count" data-category-count="other">0</span>
+        </button>
       </div>
 
       <div class="filters">
@@ -221,15 +251,21 @@
       </div>
 
       <div id="empty-state" class="empty-state">
-        <div class="empty-icon" aria-hidden="true">✓</div>
+        <div class="empty-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m5 12 4.5 4.5L19 7"/></svg></div>
         <h3>Ready when you are</h3>
         <p>Run a review to see model validation results here.</p>
       </div>
-      <div id="findings-list" class="findings-list" aria-live="polite"></div>
+      <div id="findings-scroll-panel" class="findings-scroll-panel" tabindex="0" aria-label="Scrollable findings list">
+        <div id="findings-list" class="findings-list" aria-live="polite"></div>
+      </div>
+      <section id="submission-controls" class="submission-controls" aria-live="polite" hidden>
+        <p id="submission-status" class="dashboard-description"></p>
+        <button id="submit-review-workflow" class="button button-primary" type="button" disabled><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 5 16 7-16 7 3-7-3-7Z"/><path d="M7 12h13"/></svg><span>Submit review</span></button>
+      </section>
     </section>
 
     <aside class="privacy-note">
-      <span class="privacy-icon" aria-hidden="true">i</span>
+      <span class="privacy-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/></svg></span>
       <p><strong>Review history and submitted feedback are saved to the configured SQL database.</strong> Feedback stays in Waiting until you select Submit feedback; a submitted response can be reopened. The run dashboard closes a review when all its findings are submitted. Linked feedback follows the review history retention period (30 days for this pilot). Unsubmitted changes are kept only in this page session; use Export feedback before leaving if SQL is unavailable. The generated reviewer ID identifies this browser only; it is not company sign-in.</p>
     </aside>
     </div>
@@ -247,59 +283,208 @@
         <div>
           <p class="eyebrow">POWER BI SERVICE INVENTORY</p>
           <h1 id="governance-title">Governance Audit</h1>
-          <p class="intro-copy">Run a read-only inventory of explicitly approved Power BI workspaces, their access, reports, and semantic models.</p>
+          <p class="intro-copy">Run a read-only inventory of explicitly approved Power BI workspaces, their access, reports, dashboards, and semantic models.</p>
         </div>
       </header>
       <div class="configuration-card">
-        <p id="governance-status" class="status" role="status" aria-live="polite">A governance administrator must configure the approved workspace scope before scanning.</p>
+        <p id="governance-status" class="status" role="status" aria-live="polite">Authorize Power BI access and select an approved workspace to begin.</p>
         <p id="governance-error" class="error-banner" role="alert" hidden></p>
-        <p class="dashboard-description">Only the workspace IDs saved in Governance Audit Administration are scanned. The audit never changes Power BI content or access.</p>
-        <p class="dashboard-description">BI Sentinel sign-in and Power BI access are separate. Authorize delegated Power BI read access once before your first scan; you do not need to do this for every scan. Repeat only if access is revoked or the app reports that authorization is needed.</p>
-        <a class="button button-secondary" href="/api/governance-audit/signin">Authorize Power BI read access</a>
-        <button id="run-governance-scan" class="button button-primary" type="button">Run read-only audit</button>
+        <p class="dashboard-description">Only the workspace IDs saved in Governance Audit Administration are scanned. The audit never changes Power BI content or access. Connect your Power BI account in the first step to begin.</p>
+        <nav class="governance-scan-tabs" role="tablist" aria-label="Governance scan setup">
+          <button id="governance-scan-tab-access" class="admin-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="governance-scan-panel-access" data-governance-scan-tab="access">Power BI access</button>
+          <button id="governance-scan-tab-workspaces" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="governance-scan-panel-workspaces" data-governance-scan-tab="workspaces" disabled>Workspaces</button>
+          <button id="governance-scan-tab-artifacts" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="governance-scan-panel-artifacts" data-governance-scan-tab="artifacts" disabled>Reports and dashboards</button>
+          <button id="governance-scan-tab-checks" class="admin-tab" type="button" role="tab" aria-selected="false" aria-controls="governance-scan-panel-checks" data-governance-scan-tab="checks" disabled>Governance checks</button>
+        </nav>
+        <section id="governance-scan-panel-access" class="configuration-card governance-scan-panel" role="tabpanel" aria-labelledby="governance-scan-tab-access" data-governance-scan-panel="access">
+          <h2>Connect to Power BI</h2>
+          <p class="dashboard-description">Governance Audit reads Power BI using your signed-in account. This is separate from signing in to BI Sentinel and does not grant write access.</p>
+          <div id="governance-powerbi-access-status" class="governance-access-status" role="status" aria-live="polite">
+            <span class="governance-status-icon" aria-hidden="true"></span>
+            <span>Checking delegated Power BI access…</span>
+          </div>
+          <div class="configuration-actions">
+            <a id="authorize-governance-powerbi" class="button button-primary" href="/api/governance-audit/signin">Authorize Power BI and model metadata access</a>
+            <button id="check-governance-powerbi-access" class="button button-secondary" type="button">Check access</button>
+            <button id="governance-access-next" class="button button-primary" type="button" disabled>Next: workspaces</button>
+          </div>
+        </section>
+        <section id="governance-scan-panel-workspaces" class="configuration-card governance-scan-panel" role="tabpanel" aria-labelledby="governance-scan-tab-workspaces" data-governance-scan-panel="workspaces">
+          <h2>Choose workspaces</h2>
+          <p class="dashboard-description">Select from the workspaces approved by an administrator. Names are returned by Power BI; the saved allowlist cannot be bypassed here.</p>
+          <div class="governance-workspace-filters" aria-label="Filter approved workspaces">
+            <label>
+              <span>Workspace name contains</span>
+              <input id="governance-workspace-name-filter" type="search" placeholder="For example: Finance or Prod">
+            </label>
+            <label>
+              <span>Workspace capacity</span>
+              <select id="governance-workspace-capacity-filter">
+                <option value="all">Any capacity</option>
+                <option value="dedicated">Dedicated capacity</option>
+                <option value="shared">Shared capacity</option>
+              </select>
+            </label>
+            <button id="governance-select-filtered-workspaces" class="button button-secondary" type="button">Select only matches</button>
+          </div>
+          <p class="dashboard-description governance-capacity-help">This is Power BI shared vs dedicated hosting, not a named capacity or workspace license type.</p>
+          <div id="governance-scan-workspaces" class="module-availability-list" aria-live="polite">
+            <p class="dashboard-empty">Loading approved workspaces…</p>
+          </div>
+          <div class="configuration-actions">
+            <button id="governance-workspaces-next" class="button button-primary" type="button">Next: reports and dashboards</button>
+          </div>
+        </section>
+        <section id="governance-scan-panel-artifacts" class="configuration-card governance-scan-panel" role="tabpanel" aria-labelledby="governance-scan-tab-artifacts" data-governance-scan-panel="artifacts" hidden>
+          <h2>Choose reports and dashboards</h2>
+          <p class="dashboard-description">The lists are loaded from the selected workspaces. Items are selected by default; uncheck any item you do not want included. Semantic models remain selectable as an inventory.</p>
+          <div id="governance-artifact-selection" class="module-availability-list">
+            <label class="module-availability-option"><input type="checkbox" data-governance-artifact="Reports" checked><span>Include reports</span></label>
+            <label class="module-availability-option"><input type="checkbox" data-governance-artifact="Dashboards" checked><span>Include dashboards</span></label>
+            <label class="module-availability-option"><input type="checkbox" data-governance-artifact="SemanticModels" checked><span>Include semantic models</span></label>
+            <label class="module-availability-option"><input type="checkbox" data-governance-artifact="Apps"><span>Include installed apps (account-level)</span></label>
+            <label class="module-availability-option"><input type="checkbox" data-governance-artifact="Gateways"><span>Include gateways where you are an admin (account-level)</span></label>
+          </div>
+          <p class="dashboard-description">Apps and gateways are account-level inventories, not children of the selected workspaces. Apps require Power BI App.Read.All consent; gateways are returned only when your signed-in Power BI user is a gateway administrator. They are included only when explicitly selected.</p>
+          <div class="module-availability-list" aria-label="Unsupported artifact types">
+            <label class="module-availability-option" aria-disabled="true"><input type="checkbox" disabled><span>Dataflows — not enabled</span></label>
+            <label class="module-availability-option" aria-disabled="true"><input type="checkbox" disabled><span>Datamarts — not enabled</span></label>
+          </div>
+          <div id="governance-artifact-items" class="module-availability-list" aria-live="polite">
+            <p class="dashboard-empty">Select workspaces to load their reports and dashboards.</p>
+          </div>
+          <div class="configuration-actions">
+            <button id="governance-artifacts-back" class="button button-secondary" type="button">Back: workspaces</button>
+            <button id="governance-artifacts-next" class="button button-primary" type="button">Next: governance checks</button>
+          </div>
+        </section>
+        <section id="governance-scan-panel-checks" class="configuration-card governance-scan-panel" role="tabpanel" aria-labelledby="governance-scan-tab-checks" data-governance-scan-panel="checks" hidden>
+          <h2>Choose governance checks</h2>
+          <p class="dashboard-description">All versioned checks, including OPT-001 through OPT-003, are selected by default. They run automatically against the selected workspaces and semantic-model metadata; no project file upload is needed. Uncheck any check you intentionally want to skip. Findings include API evidence and rule versions.</p>
+          <div id="governance-check-selection" class="module-availability-list" aria-live="polite">
+            <p class="dashboard-empty">Loading approved governance checks…</p>
+          </div>
+          <aside class="governance-optimization-note">
+            <strong>Model optimization checks run automatically</strong>
+            <p>OPT-001 through OPT-003 compare semantic-model objects and DAX dependencies with visual fields extracted automatically from each linked report's export. This requires a Fabric administrator, delegated Tenant.Read.All consent, delegated Report.Read.All consent, and tenant metadata-scanning settings. Unsupported or inaccessible reports produce evidence gaps. Candidates are advisory and do not include reports in unscanned workspaces or external consumers.</p>
+          </aside>
+          <div class="configuration-actions">
+            <button id="governance-checks-back" class="button button-secondary" type="button">Back: reports and dashboards</button>
+            <button id="run-governance-scan" class="button button-primary" type="button">Review selections and run audit</button>
+          </div>
+        </section>
       </div>
       <div id="governance-results" hidden>
-        <section class="configuration-card">
-          <h2>Workspace overview</h2>
-          <div class="dashboard-table-wrap"><table class="dashboard-table">
-            <thead><tr><th>Workspace</th><th>Reports</th><th>Semantic models</th><th>Workspace admins</th></tr></thead>
-            <tbody id="governance-workspace-rows"></tbody>
-          </table></div>
+        <section class="configuration-card governance-results-overview" aria-labelledby="governance-results-title">
+          <div class="governance-results-heading">
+            <h2 id="governance-results-title">Audit results</h2>
+            <button id="export-governance-audit" class="button button-secondary" type="button" disabled>
+              <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4"/></svg>
+              Export Excel workbook
+            </button>
+          </div>
+          <p id="governance-result-summary" class="dashboard-description"></p>
+          <div id="governance-result-counts" class="governance-result-counts"></div>
         </section>
         <section class="configuration-card">
           <h2>Findings</h2>
-          <p class="dashboard-description">Standard checks flag missing visible workspace admins, guest access, Member/Contributor edit access, missing owner metadata, and report/semantic-model dependency candidates. Findings are advisory: guest access, edit roles, shared models, and missing metadata may all be expected in your organization.</p>
-          <div class="dashboard-table-wrap"><table class="dashboard-table">
-            <thead><tr><th>Severity</th><th>Workspace</th><th>Finding</th><th>Details</th></tr></thead>
-            <tbody id="governance-finding-rows"></tbody>
-          </table></div>
-          <p id="governance-no-findings" class="dashboard-empty" hidden>No governance findings were identified in this scan.</p>
+          <p class="dashboard-description">Start with items that need review. Expand a check or finding only when you need its evidence and rule details.</p>
+          <nav id="governance-finding-filters" class="governance-finding-filters" aria-label="Filter audit findings">
+            <button class="governance-finding-filter is-active" type="button" aria-pressed="true" data-governance-finding-filter="all">All <span data-governance-finding-count="all">0</span></button>
+            <button class="governance-finding-filter" type="button" aria-pressed="false" data-governance-finding-filter="FAIL">Needs review <span data-governance-finding-count="FAIL">0</span></button>
+            <button class="governance-finding-filter" type="button" aria-pressed="false" data-governance-finding-filter="INSUFFICIENT_EVIDENCE">Evidence gaps <span data-governance-finding-count="INSUFFICIENT_EVIDENCE">0</span></button>
+            <button class="governance-finding-filter" type="button" aria-pressed="false" data-governance-finding-filter="EXCEPTION_APPROVED">Exceptions <span data-governance-finding-count="EXCEPTION_APPROVED">0</span></button>
+            <button class="governance-finding-filter" type="button" aria-pressed="false" data-governance-finding-filter="PASS">Passed <span data-governance-finding-count="PASS">0</span></button>
+          </nav>
+          <p id="governance-finding-scope" class="governance-finding-scope" hidden>
+            <span id="governance-finding-scope-label"></span>
+            <button id="clear-governance-finding-scope" type="button">Show all findings</button>
+          </p>
+          <div id="governance-finding-list" class="governance-finding-list"></div>
+          <p id="governance-no-findings" class="dashboard-empty" hidden>No check results were returned for this scan.</p>
         </section>
-        <section class="configuration-card">
-          <h2>Workspace access</h2>
+        <details class="governance-result-aux">
+          <summary>Workspace overview</summary>
           <div class="dashboard-table-wrap"><table class="dashboard-table">
-            <thead><tr><th>Workspace</th><th>Principal</th><th>Type</th><th>Access</th></tr></thead>
+            <thead><tr><th>Workspace</th><th>Hosting</th><th>Reports</th><th>Dashboards</th><th>Semantic models</th><th>Access by role</th></tr></thead>
+            <tbody id="governance-workspace-rows"></tbody>
+          </table></div>
+        </details>
+        <details class="governance-result-aux">
+          <summary>Workspace access</summary>
+          <div class="dashboard-table-wrap"><table class="dashboard-table">
+            <thead><tr><th>Workspace</th><th>Name</th><th>Email / identifier</th><th>Principal type</th><th>Permission</th></tr></thead>
             <tbody id="governance-access-rows"></tbody>
           </table></div>
-        </section>
-        <section class="configuration-card">
-          <h2>Reports and semantic models</h2>
+        </details>
+        <details class="governance-result-aux">
+          <summary>Report data connections and gateway status</summary>
+          <p class="dashboard-description">Connection health is inferred from the latest semantic model refresh: Online means it completed and Offline means it failed. This is historical evidence, not a live source test. Gateway status comes from Power BI; Unknown means Power BI did not return a definitive state.</p>
           <div class="dashboard-table-wrap"><table class="dashboard-table">
-            <thead><tr><th>Workspace</th><th>Type</th><th>Name</th><th>Owner / configured by</th></tr></thead>
+            <thead><tr><th>Workspace</th><th>Report</th><th>Semantic model</th><th>Source</th><th>Connection</th><th>Connection status</th><th>Gateway status</th></tr></thead>
+            <tbody id="governance-connection-rows"></tbody>
+          </table></div>
+        </details>
+        <details class="governance-result-aux">
+          <summary>Reports and semantic models</summary>
+          <div class="dashboard-table-wrap"><table class="dashboard-table">
+            <thead><tr><th>Workspace</th><th>Type</th><th>Name</th><th>Owner / configured by</th><th>Status</th></tr></thead>
             <tbody id="governance-artifact-rows"></tbody>
           </table></div>
-          <p class="dashboard-description">Refresh history is not queried in this phase. Although the refresh-history API uses GET, Power BI requires the signed-in user to have Write permission on each dataset. This audit remains read-only and does not request or use dataset write access.</p>
-        </section>
-        <section class="configuration-card">
-          <h2>Recent audit runs</h2>
+        </details>
+        <details class="governance-result-aux">
+          <summary>Recent audit runs</summary>
           <div class="dashboard-table-wrap"><table class="dashboard-table">
-            <thead><tr><th>Completed</th><th>Scanned by</th><th>Workspaces</th><th>Reports</th><th>Semantic models</th><th>Findings</th><th>Action</th></tr></thead>
+            <thead><tr><th>Completed</th><th>Scanned by</th><th>Workspaces</th><th>Reports</th><th>Dashboards</th><th>Semantic models</th><th>Apps</th><th>Gateways</th><th>Findings</th><th>Action</th></tr></thead>
             <tbody id="governance-history-rows"></tbody>
           </table></div>
           <p id="governance-history-empty" class="dashboard-empty" hidden>No saved Governance Audit runs yet.</p>
-        </section>
+        </details>
       </div>
     </section>
+    <dialog id="governance-scan-confirmation" class="review-success-dialog" aria-labelledby="governance-scan-confirmation-title">
+      <div class="review-success-content">
+        <p class="eyebrow">GOVERNANCE AUDIT</p>
+        <h2 id="governance-scan-confirmation-title">Confirm what to scan</h2>
+        <p class="dashboard-description">Review the selected workspaces, artifact types, and checks before the read-only scan starts.</p>
+        <ul id="governance-scan-confirmation-summary" class="governance-scan-confirmation-summary"></ul>
+        <div class="configuration-actions">
+          <button id="cancel-governance-scan" class="button button-secondary" type="button" autofocus>Cancel</button>
+          <button id="confirm-governance-scan" class="button button-primary" type="button">Run read-only audit</button>
+        </div>
+      </div>
+    </dialog>
+    <dialog id="governance-results-dialog" class="review-success-dialog" aria-labelledby="governance-results-dialog-title">
+      <div class="review-success-content">
+        <p class="eyebrow">AUDIT COMPLETE</p>
+        <h2 id="governance-results-dialog-title">Your audit results are ready</h2>
+        <p id="governance-results-dialog-summary" class="dashboard-description"></p>
+        <div id="governance-results-dialog-counts" class="governance-result-counts"></div>
+        <button id="open-governance-results" class="button button-primary" type="button" autofocus>View organized findings</button>
+      </div>
+    </dialog>
+    <dialog id="governance-exception-dialog" class="review-success-dialog" aria-labelledby="governance-exception-title">
+      <form id="governance-exception-form" class="review-success-content">
+        <p class="eyebrow">GOVERNANCE EXCEPTION</p>
+        <h2 id="governance-exception-title">Approve a time-limited exception</h2>
+        <p id="governance-exception-target" class="dashboard-description"></p>
+        <div class="governance-exception-approval-fields">
+          <label class="field-label" for="governance-exception-owner">Exception owner</label>
+          <input id="governance-exception-owner" type="text" maxlength="256" required>
+          <p class="dashboard-description">The person accountable for monitoring this exception.</p>
+          <label class="field-label" for="governance-exception-expiry">Expiry date</label>
+          <input id="governance-exception-expiry" type="date" required>
+          <p class="dashboard-description">Exceptions expire automatically and cannot be approved for more than one year.</p>
+        </div>
+        <label id="governance-exception-reason-label" class="field-label" for="governance-exception-reason">Approval justification</label>
+        <textarea id="governance-exception-reason" maxlength="2000" rows="4" required></textarea>
+        <p id="governance-exception-error" class="error-banner" role="alert" hidden></p>
+        <div class="configuration-actions">
+          <button id="cancel-governance-exception" class="button button-secondary" type="button">Cancel</button>
+          <button id="submit-governance-exception" class="button button-primary" type="submit">Approve exception</button>
+        </div>
+      </form>
+    </dialog>
     <section id="admin-configuration" class="admin-configuration" aria-labelledby="admin-configuration-title" hidden>
       <header class="admin-header">
         <div>
@@ -468,12 +653,12 @@
           <div class="configuration-card">
             <p class="eyebrow">APPLICATION ACCESS</p>
             <h2>Users &amp; access</h2>
-            <p class="dashboard-description">Tenant users receive basic Review access when they sign in. Grant or remove the BI Sentinel Admin role here. Users appear after their first sign-in.</p>
+            <p class="dashboard-description">Tenant users receive submitter access when they sign in. Grant Admin, Manager, or Lead roles here. Reviewers can see the shared review queue; submitters can see only their own uploaded reviews and submissions. Users appear after their first sign-in.</p>
             <p id="application-users-status" class="status" role="status" aria-live="polite">User list has not been loaded.</p>
             <p id="application-users-error" class="error-banner" role="alert" hidden></p>
             <div class="dashboard-table-wrap">
               <table class="dashboard-table">
-                <thead><tr><th>User</th><th>Email</th><th>First sign-in</th><th>Application role</th><th>Action</th></tr></thead>
+                <thead><tr><th>User</th><th>Email</th><th>First sign-in</th><th>Application roles</th><th>Actions</th></tr></thead>
                 <tbody id="application-users-rows"></tbody>
               </table>
             </div>

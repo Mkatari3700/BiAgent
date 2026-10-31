@@ -21,6 +21,8 @@ public sealed class ApplicationUserAccessMiddlewareTests
             "admin@example.com",
             true,
             true,
+            true,
+            true,
             false,
             DateTimeOffset.UtcNow);
         var store = new StubApplicationUserStore(user);
@@ -41,6 +43,8 @@ public sealed class ApplicationUserAccessMiddlewareTests
         Assert.True(nextInvoked);
         Assert.True(context.User.IsInRole("ApplicationAdmin"));
         Assert.True(context.User.IsInRole("ApplicationUser"));
+        Assert.True(context.User.IsInRole("ReviewManager"));
+        Assert.True(context.User.IsInRole("ReviewLead"));
         Assert.Same(user, ApplicationUserContext.Get(context));
     }
 
@@ -55,6 +59,8 @@ public sealed class ApplicationUserAccessMiddlewareTests
             objectId,
             "Review User",
             "reviewer@example.com",
+            false,
+            false,
             false,
             true,
             false,
@@ -71,6 +77,8 @@ public sealed class ApplicationUserAccessMiddlewareTests
 
         Assert.True(context.User.IsInRole("ApplicationUser"));
         Assert.False(context.User.IsInRole("ApplicationAdmin"));
+        Assert.False(context.User.IsInRole("ReviewManager"));
+        Assert.False(context.User.IsInRole("ReviewLead"));
     }
 
     [Fact]
@@ -85,6 +93,8 @@ public sealed class ApplicationUserAccessMiddlewareTests
             "BI Admin",
             "admin@example.com",
             true,
+            true,
+            false,
             true,
             false,
             DateTimeOffset.UtcNow);
@@ -112,6 +122,8 @@ public sealed class ApplicationUserAccessMiddlewareTests
             objectId,
             "Review User",
             "reviewer@example.com",
+            false,
+            false,
             false,
             true,
             false,
@@ -169,6 +181,15 @@ public sealed class ApplicationUserAccessMiddlewareTests
             Guid actorUserId,
             bool isAdmin,
             Guid bootstrapAdminObjectId,
+            CancellationToken cancellationToken) =>
+            throw new NotImplementedException();
+
+        public Task<ApplicationUserRoleChangeResult> SetReviewerRoleAsync(
+            Guid tenantId,
+            Guid targetUserId,
+            Guid actorUserId,
+            string roleName,
+            bool isGranted,
             CancellationToken cancellationToken) =>
             throw new NotImplementedException();
     }

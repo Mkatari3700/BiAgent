@@ -356,6 +356,162 @@ public sealed class DaxFormatRule : IReviewRule
     }
 }
 
+public sealed class UnusedTablesRule : IReviewRule
+{
+    public string Key => "unused-tables";
+
+    public ReviewRuleResult Evaluate(PbipProjectModel project, ReviewOptions options)
+    {
+        var measures = project.Tables.SelectMany(table => table.Measures).ToArray();
+        var candidates = project.Tables
+            .Where(table => !ReviewRuleHelpers.IsGeneratedTable(table.Name, options))
+            .Where(static table => table.Measures.Count == 0)
+            .Where(table =>
+                !measures.Any(measure => ModelUsageReferences.ContainsToken(measure.Expression, table.Name)) &&
+                !(project.ReportReferences ?? []).Any(reference =>
+                    ModelUsageReferences.ContainsToken(reference, table.Name)))
+            .ToArray();
+        var findings = candidates.Select(table => new PbipReviewFinding(
+            "OPT-001",
+            string.Empty,
+            $"Table is not used: {table.Name}",
+            table.Name,
+            string.Join(Environment.NewLine,
+            [
+                "Static model checks found:",
+                "- No DAX measure references this table.",
+                "- Relationship metadata alone does not establish that the table is consumed.",
+                project.ReportReferences is null
+                    ? "- Report visual usage could not be checked because report definitions were not included."
+                    : "- No included report definition references this table.",
+                "- Candidate only: verify external reports, refresh/query dependencies, and downstream consumers before removing it."
+            ]))).ToArray();
+        return new ReviewRuleResult(project.Tables.Count, findings);
+    }
+}
+
+public sealed class UnusedColumnsRule : IReviewRule
+{
+    public string Key => "unused-columns";
+
+    public ReviewRuleResult Evaluate(PbipProjectModel project, ReviewOptions options)
+    {
+        var measures = project.Tables.SelectMany(table => table.Measures).ToArray();
+        var candidates = project.Tables
+            .Where(table => !ReviewRuleHelpers.IsGeneratedTable(table.Name, options))
+            .SelectMany(table => table.Columns
+                .Where(column => !project.Relationships.Any(relationship =>
+                    (string.Equals(relationship.FromTable, table.Name, StringComparison.OrdinalIgnoreCase) &&
+                     string.Equals(relationship.FromColumn, column.Name, StringComparison.OrdinalIgnoreCase)) ||
+                    (string.Equals(relationship.ToTable, table.Name, StringComparison.OrdinalIgnoreCase) &&
+                     string.Equals(relationship.ToColumn, column.Name, StringComparison.OrdinalIgnoreCase))))
+                .Where(column =>
+                    !measures.Any(measure => ModelUsageReferences.ReferencesColumn(
+                        measure.Expression,
+                        table.Name,
+                        column.Name)) &&
+                    !(project.ReportReferences ?? []).Any(reference =>
+                        ModelUsageReferences.ReportReferencesColumn(reference, table.Name, column.Name)))
+                .Select(column => (Table: table, Column: column)))
+            .ToArray();
+        var findings = candidates.Select(item => new PbipReviewFinding(
+            "OPT-002",
+            string.Empty,
+            $"Column is not used: {item.Table.Name}[{item.Column.Name}]",
+            $"{item.Table.Name}[{item.Column.Name}]",
+            string.Join(Environment.NewLine,
+            [
+                "Static model checks found:",
+                "- No model relationship references this column.",
+                "- No DAX measure references this column.",
+                project.ReportReferences is null
+                    ? "- Report visual usage could not be checked because report definitions were not included."
+                    : "- No included report definition references this column.",
+                "- Candidate only: check visual, sort/group, refresh/query, and downstream dependencies before removing it."
+            ]))).ToArray();
+        return new ReviewRuleResult(project.Tables.Sum(table => table.Columns.Count), findings);
+    }
+}
+
+public sealed class UnusedMeasuresRule : IReviewRule
+{
+    public string Key => "unused-measures";
+
+    public ReviewRuleResult Evaluate(PbipProjectModel project, ReviewOptions options)
+    {
+        var measures = project.Tables
+            .SelectMany(table => table.Measures.Select(measure => (Table: table, Measure: measure)))
+            .ToArray();
+        var candidates = measures
+            .Where(item => !measures.Any(other =>
+                (!string.Equals(other.Table.Name, item.Table.Name, StringComparison.OrdinalIgnoreCase) ||
+                 !string.Equals(other.Measure.Name, item.Measure.Name, StringComparison.OrdinalIgnoreCase)) &&
+                ModelUsageReferences.ReferencesMeasure(other.Measure.Expression, item.Measure.Name)))
+            .Where(item => !(project.ReportReferences ?? []).Any(reference =>
+                ModelUsageReferences.ContainsToken(reference, item.Measure.Name)))
+            .ToArray();
+        var findings = candidates.Select(item => new PbipReviewFinding(
+            "OPT-003",
+            string.Empty,
+            $"Measure is not used: {item.Measure.Name} (table {item.Table.Name})",
+            $"{item.Table.Name}[{item.Measure.Name}]",
+            string.Join(Environment.NewLine,
+            [
+                "Static model checks found:",
+                "- No other DAX measure references this measure.",
+                project.ReportReferences is null
+                    ? "- Report visual usage could not be checked because report definitions were not included."
+                    : "- No included report definition references this measure.",
+                "- Candidate only: verify external reports and downstream consumers before removing it."
+            ]))).ToArray();
+        return new ReviewRuleResult(measures.Length, findings);
+    }
+}
+
+internal static class ModelUsageReferences
+{
+    private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(250);
+
+    public static bool ContainsToken(string source, string name) =>
+        Regex.IsMatch(
+            source,
+            $@"(?<![\p{{L}}\p{{N}}_]){Regex.Escape(name)}(?![\p{{L}}\p{{N}}_])",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            RegexTimeout);
+
+    public static bool ReferencesColumn(string source, string tableName, string columnName)
+    {
+        var escapedTable = Regex.Escape(tableName);
+        var escapedColumn = Regex.Escape(columnName);
+        var daxReference = $@"(?:'{escapedTable.Replace("'", "''")}'|{escapedTable})\s*\[\s*{escapedColumn}\s*\]";
+        return Regex.IsMatch(
+            source,
+            daxReference,
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            RegexTimeout);
+    }
+
+    public static bool ReportReferencesColumn(string source, string tableName, string columnName)
+    {
+        var escapedTable = Regex.Escape(tableName);
+        var escapedColumn = Regex.Escape(columnName);
+        var reportReference = $@"(?:{escapedTable}\s*\[\s*{escapedColumn}\s*\]|{escapedTable}\s*\.\s*{escapedColumn})";
+        return Regex.IsMatch(
+                   source,
+                   reportReference,
+                   RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+                   RegexTimeout) ||
+               ContainsToken(source, columnName);
+    }
+
+    public static bool ReferencesMeasure(string source, string measureName) =>
+        Regex.IsMatch(
+            source,
+            $@"\[\s*{Regex.Escape(measureName)}\s*\]",
+            RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
+            RegexTimeout);
+}
+
 internal static class ReviewRuleHelpers
 {
     private static readonly TimeSpan RegexTimeout = TimeSpan.FromMilliseconds(250);
@@ -376,6 +532,8 @@ internal static class ReviewRuleHelpers
     }
 
     public static bool IsGeneratedTable(string tableName, ReviewOptions options) =>
+        tableName.StartsWith("LocalDateTable_", StringComparison.OrdinalIgnoreCase) ||
+        tableName.StartsWith("DateTableTemplate_", StringComparison.OrdinalIgnoreCase) ||
         options.GeneratedTablePrefixes.Any(prefix =>
             tableName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
 

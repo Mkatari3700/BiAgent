@@ -9,14 +9,17 @@ public interface IReviewHistoryStore
     Task<ReviewHistoryEntry> SaveAsync(
         PbipReviewResult review,
         int retentionDays,
+        Guid uploadedByUserId,
         CancellationToken cancellationToken);
 
     Task<IReadOnlyList<ReviewHistorySummary>> GetRecentAsync(
         int limit,
         string? projectName,
+        Guid? uploadedByUserId,
         CancellationToken cancellationToken);
 
     Task<ReviewHistoryEntry?> GetAsync(
         Guid reviewRunId,
+        Guid? uploadedByUserId,
         CancellationToken cancellationToken);
 }

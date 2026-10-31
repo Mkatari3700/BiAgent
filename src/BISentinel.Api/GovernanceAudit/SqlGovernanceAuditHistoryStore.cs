@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using BISentinel.Api.GovernanceAudit;
 using Microsoft.Data.SqlClient;
 
@@ -76,7 +77,9 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
 
-            foreach (var artifact in audit.Reports.Concat(audit.SemanticModels))
+            foreach (var artifact in audit.Reports
+                         .Concat(audit.SemanticModels)
+                         .Concat(audit.Dashboards))
             {
                 await using var command = new SqlCommand(
                     """
@@ -100,6 +103,61 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
                     (object?)artifact.WebUrl ?? DBNull.Value;
                 await command.ExecuteNonQueryAsync(cancellationToken);
             }
+
+            foreach (var reportConnection in audit.ReportConnections)
+            {
+                await using var command = new SqlCommand(
+                    """
+                    INSERT INTO dbo.BiAgentGovernanceAuditRunReportConnections
+                        (RunId, WorkspaceId, ReportId, ReportName, SemanticModelName, SourceType,
+                         ConnectionDetails, GatewayId, Status, StatusDetail, GatewayStatus, GatewayStatusDetail)
+                    VALUES
+                        (@RunId, @WorkspaceId, @ReportId, @ReportName, @SemanticModelName, @SourceType,
+                         @ConnectionDetails, @GatewayId, @Status, @StatusDetail, @GatewayStatus, @GatewayStatusDetail);
+                    """,
+                    connection,
+                    transaction);
+                command.Parameters.Add("@RunId", SqlDbType.UniqueIdentifier).Value = runId;
+                command.Parameters.Add("@WorkspaceId", SqlDbType.UniqueIdentifier).Value = audit.Workspace.Id;
+                command.Parameters.Add("@ReportId", SqlDbType.UniqueIdentifier).Value = reportConnection.ReportId;
+                command.Parameters.Add("@ReportName", SqlDbType.NVarChar, 256).Value = reportConnection.ReportName;
+                command.Parameters.Add("@SemanticModelName", SqlDbType.NVarChar, 256).Value =
+                    (object?)reportConnection.SemanticModelName ?? DBNull.Value;
+                command.Parameters.Add("@SourceType", SqlDbType.NVarChar, 100).Value =
+                    (object?)reportConnection.SourceType ?? DBNull.Value;
+                command.Parameters.Add("@ConnectionDetails", SqlDbType.NVarChar, 2000).Value =
+                    (object?)reportConnection.ConnectionDetails ?? DBNull.Value;
+                command.Parameters.Add("@GatewayId", SqlDbType.UniqueIdentifier).Value =
+                    (object?)reportConnection.GatewayId ?? DBNull.Value;
+                command.Parameters.Add("@Status", SqlDbType.NVarChar, 100).Value = reportConnection.Status;
+                command.Parameters.Add("@StatusDetail", SqlDbType.NVarChar, 2000).Value = reportConnection.StatusDetail;
+                command.Parameters.Add("@GatewayStatus", SqlDbType.NVarChar, 100).Value = reportConnection.GatewayStatus;
+                command.Parameters.Add("@GatewayStatusDetail", SqlDbType.NVarChar, 2000).Value =
+                    reportConnection.GatewayStatusDetail;
+                await command.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+
+        foreach (var artifact in result.Apps.Concat(result.Gateways))
+        {
+            await using var command = new SqlCommand(
+                """
+                INSERT INTO dbo.BiAgentGovernanceAuditRunGlobalArtifacts
+                    (RunId, ArtifactId, ArtifactName, ArtifactType, ConfiguredBy, Status)
+                VALUES
+                    (@RunId, @ArtifactId, @ArtifactName, @ArtifactType, @ConfiguredBy, @Status);
+                """,
+                connection,
+                transaction);
+            command.Parameters.Add("@RunId", SqlDbType.UniqueIdentifier).Value = runId;
+            command.Parameters.Add("@ArtifactId", SqlDbType.UniqueIdentifier).Value = artifact.Id;
+            command.Parameters.Add("@ArtifactName", SqlDbType.NVarChar, 256).Value = artifact.Name;
+            command.Parameters.Add("@ArtifactType", SqlDbType.NVarChar, 40).Value = artifact.Type;
+            command.Parameters.Add("@ConfiguredBy", SqlDbType.NVarChar, 256).Value =
+                (object?)artifact.ConfiguredBy ?? DBNull.Value;
+            command.Parameters.Add("@Status", SqlDbType.NVarChar, 100).Value =
+                (object?)artifact.Status ?? DBNull.Value;
+            await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
         foreach (var finding in result.Findings)
@@ -107,9 +165,13 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
             await using var command = new SqlCommand(
                 """
                 INSERT INTO dbo.BiAgentGovernanceAuditRunFindings
-                    (RunId, Code, Severity, WorkspaceId, WorkspaceName, ArtifactId, Title, Detail)
+                    (RunId, Code, Severity, WorkspaceId, WorkspaceName, ArtifactId, Title, Detail,
+                     CheckVersion, CheckName, RuleOwner, EvidenceSource, EvidenceTimestamp, Status,
+                     EvaluationLogic, ExceptionRules, ExpectedValue, ActualValue, ArtifactType, ArtifactName, EvidenceJson)
                 VALUES
-                    (@RunId, @Code, @Severity, @WorkspaceId, @WorkspaceName, @ArtifactId, @Title, @Detail);
+                    (@RunId, @Code, @Severity, @WorkspaceId, @WorkspaceName, @ArtifactId, @Title, @Detail,
+                     @CheckVersion, @CheckName, @RuleOwner, @EvidenceSource, @EvidenceTimestamp, @Status,
+                     @EvaluationLogic, @ExceptionRules, @ExpectedValue, @ActualValue, @ArtifactType, @ArtifactName, @EvidenceJson);
                 """,
                 connection,
                 transaction);
@@ -122,6 +184,36 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
                 (object?)finding.ArtifactId ?? DBNull.Value;
             command.Parameters.Add("@Title", SqlDbType.NVarChar, 256).Value = finding.Title;
             command.Parameters.Add("@Detail", SqlDbType.NVarChar, 2000).Value = finding.Detail;
+            command.Parameters.Add("@CheckVersion", SqlDbType.NVarChar, 20).Value = finding.CheckVersion;
+            command.Parameters.Add("@CheckName", SqlDbType.NVarChar, 256).Value = finding.CheckName;
+            command.Parameters.Add("@RuleOwner", SqlDbType.NVarChar, 256).Value = finding.RuleOwner;
+            command.Parameters.Add("@EvidenceSource", SqlDbType.NVarChar, 512).Value = finding.EvidenceSource;
+            command.Parameters.Add("@EvidenceTimestamp", SqlDbType.DateTime2).Value = finding.EvidenceTimestamp.UtcDateTime;
+            command.Parameters.Add("@Status", SqlDbType.NVarChar, 40).Value = finding.Status;
+            command.Parameters.Add("@EvaluationLogic", SqlDbType.NVarChar, 1000).Value = finding.EvaluationLogic;
+            command.Parameters.Add("@ExceptionRules", SqlDbType.NVarChar, 1000).Value = finding.ExceptionRules;
+            command.Parameters.Add("@ExpectedValue", SqlDbType.NVarChar, 2000).Value =
+                (object?)finding.ExpectedValue ?? DBNull.Value;
+            command.Parameters.Add("@ActualValue", SqlDbType.NVarChar, 2000).Value =
+                (object?)finding.ActualValue ?? DBNull.Value;
+            command.Parameters.Add("@ArtifactType", SqlDbType.NVarChar, 40).Value =
+                (object?)finding.ArtifactType ?? DBNull.Value;
+            command.Parameters.Add("@ArtifactName", SqlDbType.NVarChar, 256).Value =
+                (object?)finding.ArtifactName ?? DBNull.Value;
+            command.Parameters.Add("@EvidenceJson", SqlDbType.NVarChar, -1).Value =
+                JsonSerializer.Serialize(finding.Evidence);
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var command = new SqlCommand(
+            """
+            DELETE FROM dbo.BiAgentGovernanceAuditRuns
+            WHERE RunId <> @RunId;
+            """,
+            connection,
+            transaction))
+        {
+            command.Parameters.Add("@RunId", SqlDbType.UniqueIdentifier).Value = runId;
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -147,8 +239,14 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
                  WHERE artifact.RunId = run.RunId AND artifact.ArtifactType = N'Report') AS ReportCount,
                 (SELECT COUNT(*) FROM dbo.BiAgentGovernanceAuditRunArtifacts AS artifact
                  WHERE artifact.RunId = run.RunId AND artifact.ArtifactType = N'Semantic model') AS SemanticModelCount,
+                (SELECT COUNT(*) FROM dbo.BiAgentGovernanceAuditRunArtifacts AS artifact
+                 WHERE artifact.RunId = run.RunId AND artifact.ArtifactType = N'Dashboard') AS DashboardCount,
+                (SELECT COUNT(*) FROM dbo.BiAgentGovernanceAuditRunGlobalArtifacts AS artifact
+                 WHERE artifact.RunId = run.RunId AND artifact.ArtifactType = N'App') AS AppCount,
+                (SELECT COUNT(*) FROM dbo.BiAgentGovernanceAuditRunGlobalArtifacts AS artifact
+                 WHERE artifact.RunId = run.RunId AND artifact.ArtifactType = N'Gateway') AS GatewayCount,
                 (SELECT COUNT(*) FROM dbo.BiAgentGovernanceAuditRunFindings AS finding
-                 WHERE finding.RunId = run.RunId) AS FindingCount
+                 WHERE finding.RunId = run.RunId AND finding.Status <> N'PASS') AS FindingCount
             FROM dbo.BiAgentGovernanceAuditRuns AS run
             ORDER BY run.ScannedUtc DESC;
             """,
@@ -165,7 +263,10 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
                 reader.GetInt32(3),
                 reader.GetInt32(4),
                 reader.GetInt32(5),
-                reader.GetInt32(6)));
+                reader.GetInt32(6),
+                reader.GetInt32(7),
+                reader.GetInt32(8),
+                reader.GetInt32(9)));
         }
 
         return summaries;
@@ -179,18 +280,20 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
         await connection.OpenAsync(cancellationToken);
 
         DateTime scannedUtc;
+        string scannedBy;
         await using (var command = new SqlCommand(
-            "SELECT ScannedUtc FROM dbo.BiAgentGovernanceAuditRuns WHERE RunId = @RunId;",
+            "SELECT ScannedUtc, ScannedBy FROM dbo.BiAgentGovernanceAuditRuns WHERE RunId = @RunId;",
             connection))
         {
             command.Parameters.Add("@RunId", SqlDbType.UniqueIdentifier).Value = runId;
-            var value = await command.ExecuteScalarAsync(cancellationToken);
-            if (value is not DateTime timestamp)
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            if (!await reader.ReadAsync(cancellationToken))
             {
                 return null;
             }
 
-            scannedUtc = timestamp;
+            scannedUtc = reader.GetDateTime(0);
+            scannedBy = reader.GetString(1);
         }
 
         var workspaces = new Dictionary<Guid, GovernanceWorkspaceAuditBuilder>();
@@ -212,6 +315,33 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
                     reader.GetBoolean(2),
                     reader.GetBoolean(3));
                 workspaces.Add(workspace.Id, new GovernanceWorkspaceAuditBuilder(workspace));
+            }
+        }
+
+        await using (var command = new SqlCommand(
+            """
+            SELECT WorkspaceId, ReportId, ReportName, SemanticModelName, SourceType, ConnectionDetails,
+                   GatewayId, Status, StatusDetail, GatewayStatus, GatewayStatusDetail
+            FROM dbo.BiAgentGovernanceAuditRunReportConnections
+            WHERE RunId = @RunId;
+            """,
+            connection))
+        {
+            command.Parameters.Add("@RunId", SqlDbType.UniqueIdentifier).Value = runId;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                workspaces[reader.GetGuid(0)].ReportConnections.Add(new GovernanceReportConnection(
+                    reader.GetGuid(1),
+                    reader.GetString(2),
+                    reader.IsDBNull(3) ? null : reader.GetString(3),
+                    reader.IsDBNull(4) ? null : reader.GetString(4),
+                    reader.IsDBNull(5) ? null : reader.GetString(5),
+                    reader.IsDBNull(6) ? null : reader.GetGuid(6),
+                    reader.GetString(7),
+                    reader.GetString(8),
+                    reader.GetString(9),
+                    reader.GetString(10)));
             }
         }
 
@@ -260,9 +390,13 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
                 {
                     workspace.Reports.Add(artifact);
                 }
-                else
+                else if (artifact.Type == "Semantic model")
                 {
                     workspace.SemanticModels.Add(artifact);
+                }
+                else if (artifact.Type == "Dashboard")
+                {
+                    workspace.Dashboards.Add(artifact);
                 }
             }
         }
@@ -270,7 +404,9 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
         var findings = new List<GovernanceFinding>();
         await using (var command = new SqlCommand(
             """
-            SELECT Code, Severity, WorkspaceId, WorkspaceName, ArtifactId, Title, Detail
+            SELECT Code, Severity, WorkspaceId, WorkspaceName, ArtifactId, Title, Detail,
+                   CheckVersion, CheckName, RuleOwner, EvidenceSource, EvidenceTimestamp, Status,
+                   EvaluationLogic, ExceptionRules, ExpectedValue, ActualValue, ArtifactType, ArtifactName, EvidenceJson
             FROM dbo.BiAgentGovernanceAuditRunFindings
             WHERE RunId = @RunId
             ORDER BY FindingId;
@@ -287,8 +423,45 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
                     reader.GetGuid(2),
                     reader.GetString(3),
                     reader.IsDBNull(4) ? null : reader.GetGuid(4),
+                    reader.IsDBNull(17) ? null : reader.GetString(17),
+                    reader.IsDBNull(18) ? null : reader.GetString(18),
                     reader.GetString(5),
-                    reader.GetString(6)));
+                    reader.GetString(6),
+                    reader.GetString(7),
+                    reader.GetString(8),
+                    reader.GetString(9),
+                    reader.GetString(10),
+                    new DateTimeOffset(DateTime.SpecifyKind(reader.GetDateTime(11), DateTimeKind.Utc)),
+                    reader.GetString(12),
+                    reader.GetString(13),
+                    reader.GetString(14),
+                    reader.IsDBNull(15) ? null : reader.GetString(15),
+                    reader.IsDBNull(16) ? null : reader.GetString(16),
+                    JsonDocument.Parse(reader.GetString(19)).RootElement.Clone()));
+            }
+        }
+
+        var globalArtifacts = new List<GovernanceArtifact>();
+        await using (var command = new SqlCommand(
+            """
+            SELECT ArtifactId, ArtifactName, ArtifactType, ConfiguredBy, Status
+            FROM dbo.BiAgentGovernanceAuditRunGlobalArtifacts
+            WHERE RunId = @RunId;
+            """,
+            connection))
+        {
+            command.Parameters.Add("@RunId", SqlDbType.UniqueIdentifier).Value = runId;
+            await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                globalArtifacts.Add(new GovernanceArtifact(
+                    reader.GetGuid(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    null,
+                    reader.IsDBNull(3) ? null : reader.GetString(3),
+                    null,
+                    reader.IsDBNull(4) ? null : reader.GetString(4)));
             }
         }
 
@@ -296,7 +469,12 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
             runId,
             new DateTimeOffset(DateTime.SpecifyKind(scannedUtc, DateTimeKind.Utc)),
             workspaces.Values.Select(workspace => workspace.Build()).ToArray(),
-            findings);
+            findings)
+        {
+            ScannedBy = scannedBy,
+            Apps = globalArtifacts.Where(artifact => artifact.Type == "App").ToArray(),
+            Gateways = globalArtifacts.Where(artifact => artifact.Type == "Gateway").ToArray()
+        };
     }
 
     private sealed class GovernanceWorkspaceAuditBuilder(GovernanceWorkspace workspace)
@@ -307,7 +485,14 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
 
         public List<GovernanceArtifact> SemanticModels { get; } = [];
 
+        public List<GovernanceArtifact> Dashboards { get; } = [];
+
+        public List<GovernanceReportConnection> ReportConnections { get; } = [];
+
         public GovernanceWorkspaceAudit Build() =>
-            new(workspace, Users, Reports, SemanticModels);
+            new(workspace, Users, Reports, SemanticModels, Dashboards)
+            {
+                ReportConnections = ReportConnections
+            };
     }
 }

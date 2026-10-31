@@ -50,7 +50,8 @@ public sealed record PbipProjectModel(
     IReadOnlyList<string> RequiredFiles,
     IReadOnlyList<ModelTable> Tables,
     IReadOnlyList<ModelRelationship> Relationships,
-    bool HasSemanticModel = true);
+    bool HasSemanticModel = true,
+    IReadOnlyList<string>? ReportReferences = null);
 
 public sealed record ModelTable(
     string Name,
@@ -76,7 +77,12 @@ public sealed record PbipReviewResult(
     int MeasuresChecked,
     int RelationshipsChecked,
     int ChecksRun,
-    IReadOnlyList<PbipReviewFinding> Findings);
+    IReadOnlyList<PbipReviewFinding> Findings)
+{
+    public IReadOnlyList<string> ExecutedRuleKeys { get; init; } = [];
+
+    public bool ReportReferencesAvailable { get; init; }
+}
 
 public sealed record PbipReviewFinding(
     string RuleId,

@@ -31,8 +31,15 @@ public sealed class PbipProjectReviewer(
             project = project with { ProjectName = projectName };
         }
 
+        project = project with
+        {
+            Tables = PbipProjectMetadata.DeduplicateTables(project.Tables),
+            Relationships = PbipProjectMetadata.DeduplicateRelationships(project.Relationships)
+        };
+
         var findings = new List<PbipReviewFinding>();
         var checksRun = 0;
+        var executedRuleKeys = new List<string>();
 
         foreach (var missingFile in project.RequiredFiles.Where(file => !File.Exists(file)))
         {
@@ -60,6 +67,7 @@ public sealed class PbipProjectReviewer(
 
             var result = rule.Evaluate(project, options);
             checksRun += result.ChecksRun;
+            executedRuleKeys.Add(rule.Key);
             findings.AddRange(result.Findings.Select(finding =>
                 finding with { Severity = policy.Severity }));
         }
@@ -91,7 +99,11 @@ public sealed class PbipProjectReviewer(
             project.Tables.Sum(static table => table.Measures.Count),
             modelRelationships.Length,
             checksRun,
-            findings);
+            findings)
+        {
+            ExecutedRuleKeys = executedRuleKeys,
+            ReportReferencesAvailable = project.ReportReferences is { Count: > 0 }
+        };
     }
 
     private static bool IsGeneratedTable(string name, IEnumerable<string> prefixes) =>

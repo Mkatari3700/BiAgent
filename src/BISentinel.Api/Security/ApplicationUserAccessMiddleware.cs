@@ -14,7 +14,9 @@ public sealed class ApplicationUserAccessMiddleware(
     {
         var requiresApplicationRole =
             context.Request.Path.StartsWithSegments("/api/admin") ||
-            context.Request.Path.StartsWithSegments("/api/governance-audit");
+            context.Request.Path.StartsWithSegments("/api/governance-audit") ||
+            context.Request.Path.StartsWithSegments("/api/reviews") ||
+            context.Request.Path.StartsWithSegments("/mcp");
         var isSessionRequest = context.Request.Path == "/api/auth/session";
         if ((!requiresApplicationRole && !isSessionRequest) ||
             context.User.Identity?.IsAuthenticated != true)
@@ -60,7 +62,9 @@ public sealed class ApplicationUserAccessMiddleware(
                 context,
                 StatusCodes.Status503ServiceUnavailable,
                 "Application access is unavailable.",
-                "Verify database migration 008 and the application database permissions.");
+                ApplicationDatabaseError.GetDetail(
+                    exception,
+                    "Verify database migration 008 and the application database permissions."));
             return;
         }
 
@@ -82,6 +86,14 @@ public sealed class ApplicationUserAccessMiddleware(
         if (applicationUser.IsAdmin)
         {
             roleClaims.Add(new Claim(ClaimTypes.Role, "ApplicationAdmin"));
+        }
+        if (applicationUser.IsManager)
+        {
+            roleClaims.Add(new Claim(ClaimTypes.Role, "ReviewManager"));
+        }
+        if (applicationUser.IsLead)
+        {
+            roleClaims.Add(new Claim(ClaimTypes.Role, "ReviewLead"));
         }
 
         context.User.AddIdentity(new ClaimsIdentity(roleClaims, "BI Sentinel application roles"));

@@ -2,6 +2,8 @@ const reviewerStorageKey = "bi-sentinel.reviewerId.v1";
 const legacyReviewerStorageKey = "bitla.reviewerId.v1";
 
 const elements = {
+  appLoadingIndicator: document.querySelector("#app-loading-indicator"),
+  appLoadingMessage: document.querySelector("#app-loading-message"),
   workspaceLayout: document.querySelector("#workspace-layout"),
   workspaceLoading: document.querySelector("#workspace-loading"),
   sidebarToggle: document.querySelector("#sidebar-toggle"),
@@ -13,14 +15,59 @@ const elements = {
   moduleNavigationStatus: document.querySelector("#module-navigation-status"),
   reviewWorkspace: document.querySelector("#review-workspace"),
   governanceWorkspace: document.querySelector("#governance-workspace"),
+  governanceScanWorkspaces: document.querySelector("#governance-scan-workspaces"),
+  governanceWorkspaceNameFilter: document.querySelector("#governance-workspace-name-filter"),
+  governanceWorkspaceCapacityFilter: document.querySelector("#governance-workspace-capacity-filter"),
+  governanceSelectFilteredWorkspaces: document.querySelector("#governance-select-filtered-workspaces"),
+  governanceArtifactSelection: document.querySelector("#governance-artifact-selection"),
+  governanceArtifactItems: document.querySelector("#governance-artifact-items"),
+  governanceScanTabs: [...document.querySelectorAll("[data-governance-scan-tab]")],
+  governanceScanPanels: [...document.querySelectorAll("[data-governance-scan-panel]")],
+  governancePowerBiAccessStatus: document.querySelector("#governance-powerbi-access-status"),
+  authorizeGovernancePowerBi: document.querySelector("#authorize-governance-powerbi"),
+  checkGovernancePowerBiAccess: document.querySelector("#check-governance-powerbi-access"),
+  governanceAccessNext: document.querySelector("#governance-access-next"),
+  governanceCheckSelection: document.querySelector("#governance-check-selection"),
   runGovernanceScan: document.querySelector("#run-governance-scan"),
+  governanceWorkspacesNext: document.querySelector("#governance-workspaces-next"),
+  governanceArtifactsBack: document.querySelector("#governance-artifacts-back"),
+  governanceArtifactsNext: document.querySelector("#governance-artifacts-next"),
+  governanceChecksBack: document.querySelector("#governance-checks-back"),
+  governanceScanConfirmationDialog: document.querySelector("#governance-scan-confirmation"),
+  governanceScanConfirmationSummary: document.querySelector("#governance-scan-confirmation-summary"),
+  confirmGovernanceScan: document.querySelector("#confirm-governance-scan"),
+  cancelGovernanceScan: document.querySelector("#cancel-governance-scan"),
   governanceStatus: document.querySelector("#governance-status"),
   governanceError: document.querySelector("#governance-error"),
   governanceResults: document.querySelector("#governance-results"),
+  governanceResultSummary: document.querySelector("#governance-result-summary"),
+  governanceResultCounts: document.querySelector("#governance-result-counts"),
+  governanceFindingFilters: [...document.querySelectorAll("[data-governance-finding-filter]")],
+  governanceFindingScope: document.querySelector("#governance-finding-scope"),
+  governanceFindingScopeLabel: document.querySelector("#governance-finding-scope-label"),
+  clearGovernanceFindingScope: document.querySelector("#clear-governance-finding-scope"),
+  governanceFindingList: document.querySelector("#governance-finding-list"),
+  governanceResultsDialog: document.querySelector("#governance-results-dialog"),
+  governanceResultsDialogSummary: document.querySelector("#governance-results-dialog-summary"),
+  governanceResultsDialogCounts: document.querySelector("#governance-results-dialog-counts"),
+  openGovernanceResults: document.querySelector("#open-governance-results"),
+  exportGovernanceAudit: document.querySelector("#export-governance-audit"),
+  governanceExceptionDialog: document.querySelector("#governance-exception-dialog"),
+  governanceExceptionForm: document.querySelector("#governance-exception-form"),
+  governanceExceptionTitle: document.querySelector("#governance-exception-title"),
+  governanceExceptionTarget: document.querySelector("#governance-exception-target"),
+  governanceExceptionOwner: document.querySelector("#governance-exception-owner"),
+  governanceExceptionExpiry: document.querySelector("#governance-exception-expiry"),
+  governanceExceptionReasonLabel: document.querySelector("#governance-exception-reason-label"),
+  governanceExceptionReason: document.querySelector("#governance-exception-reason"),
+  governanceExceptionApprovalFields: document.querySelector(".governance-exception-approval-fields"),
+  governanceExceptionError: document.querySelector("#governance-exception-error"),
+  cancelGovernanceException: document.querySelector("#cancel-governance-exception"),
+  submitGovernanceException: document.querySelector("#submit-governance-exception"),
   governanceWorkspaceRows: document.querySelector("#governance-workspace-rows"),
-  governanceFindingRows: document.querySelector("#governance-finding-rows"),
   governanceNoFindings: document.querySelector("#governance-no-findings"),
   governanceAccessRows: document.querySelector("#governance-access-rows"),
+  governanceConnectionRows: document.querySelector("#governance-connection-rows"),
   governanceArtifactRows: document.querySelector("#governance-artifact-rows"),
   governanceHistoryRows: document.querySelector("#governance-history-rows"),
   governanceHistoryEmpty: document.querySelector("#governance-history-empty"),
@@ -66,6 +113,11 @@ const elements = {
   closedCount: document.querySelector("#closed-count"),
   dashboardRows: document.querySelector("#dashboard-rows"),
   dashboardEmpty: document.querySelector("#dashboard-empty"),
+  dashboardTitle: document.querySelector("#dashboard-title"),
+  dashboardDescription: document.querySelector("#dashboard-description"),
+  submissionControls: document.querySelector("#submission-controls"),
+  submissionStatus: document.querySelector("#submission-status"),
+  submitReviewWorkflow: document.querySelector("#submit-review-workflow"),
   exportButton: document.querySelector("#export-feedback"),
   status: document.querySelector("#status"),
   error: document.querySelector("#error"),
@@ -76,6 +128,7 @@ const elements = {
   reviewSuccessMessage: document.querySelector("#review-success-message"),
   openReviewResults: document.querySelector("#open-review-results"),
   reviewResults: document.querySelector("#review-results"),
+  findingsScrollPanel: document.querySelector("#findings-scroll-panel"),
   overview: document.querySelector("#overview"),
   project: document.querySelector("#project-name"),
   findingsCount: document.querySelector("#finding-count"),
@@ -83,13 +136,94 @@ const elements = {
   measures: document.querySelector("#measure-count"),
   relationships: document.querySelector("#relationship-count"),
   list: document.querySelector("#findings-list"),
+  findingCategoryTabs: [...document.querySelectorAll("[data-finding-category]")],
   empty: document.querySelector("#empty-state"),
   resultCount: document.querySelector("#result-count"),
   severity: document.querySelector("#severity-filter"),
   search: document.querySelector("#search-filter")
 };
 
+let activeLoadingCount = 0;
+let loadingIndicatorTimer = null;
+const nativeFetch = window.fetch.bind(window);
+
+function beginGlobalLoading(message = "Working…") {
+  activeLoadingCount++;
+  if (activeLoadingCount === 1) {
+    elements.appLoadingMessage.textContent = message;
+    loadingIndicatorTimer = window.setTimeout(() => {
+      if (activeLoadingCount > 0) {
+        elements.appLoadingIndicator.hidden = false;
+        elements.appLoadingIndicator.setAttribute("aria-hidden", "false");
+        document.body.setAttribute("aria-busy", "true");
+      }
+    }, 180);
+  }
+
+  let completed = false;
+  return () => {
+    if (completed) {
+      return;
+    }
+    completed = true;
+    activeLoadingCount = Math.max(0, activeLoadingCount - 1);
+    if (activeLoadingCount === 0) {
+      window.clearTimeout(loadingIndicatorTimer);
+      elements.appLoadingIndicator.hidden = true;
+      elements.appLoadingIndicator.setAttribute("aria-hidden", "true");
+      document.body.removeAttribute("aria-busy");
+    }
+  };
+}
+
+const responseBodyMethods = new Set(["arrayBuffer", "blob", "formData", "json", "text"]);
+
+window.fetch = async (...args) => {
+  const finishLoading = beginGlobalLoading();
+  let response;
+  try {
+    response = await nativeFetch(...args);
+  } catch (error) {
+    finishLoading();
+    throw error;
+  }
+
+  if (!response.body) {
+    finishLoading();
+    return response;
+  }
+
+  let bodyConsumptionStarted = false;
+  window.setTimeout(() => {
+    if (!bodyConsumptionStarted) {
+      finishLoading();
+    }
+  }, 0);
+
+  return new Proxy(response, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== "function") {
+        return value;
+      }
+      if (responseBodyMethods.has(property)) {
+        return (...methodArgs) => {
+          bodyConsumptionStarted = true;
+          try {
+            return Promise.resolve(value.apply(target, methodArgs)).finally(finishLoading);
+          } catch (error) {
+            finishLoading();
+            throw error;
+          }
+        };
+      }
+      return value.bind(target);
+    }
+  });
+};
+
 let currentFindings = [];
+let activeFindingCategory = "all";
 let currentProject = "";
 let currentReviewRunId = "";
 let feedback = {};
@@ -101,7 +235,27 @@ let savedConfiguration = null;
 let governanceConfigurationVersion = 0;
 let moduleAvailability = null;
 let activeWorkspaceView = "reviews";
+let governanceCheckCatalogLoaded = false;
+let governanceScanScopeLoaded = false;
+let governanceArtifactCatalogs = new Map();
+let governanceArtifactSelections = new Map();
+const governanceGlobalArtifactCatalogs = { Apps: null, Gateways: null };
+const governanceGlobalArtifactErrors = {};
+let governanceArtifactCatalogWorkspaceKey = "";
+let governanceArtifactCatalogRequest = 0;
+let pendingGovernanceScan = null;
+let governanceScanPreparing = false;
 let applicationSession = null;
+let governancePowerBiAuthorized = null;
+let governanceFindingFilter = "all";
+let governanceFindingCheckFilter = "";
+let currentGovernanceFindings = [];
+let currentGovernanceRunId = "";
+let governanceExceptionTarget = null;
+let currentSubmission = null;
+let submissionDrafts = {};
+let reviewerResponseDrafts = {};
+let reviewerSubmissionMode = false;
 const reviewerId = loadReviewerId();
 
 elements.sidebarToggle.addEventListener("click", toggleSidebar);
@@ -122,9 +276,107 @@ for (const tab of elements.adminTabs) {
   });
 }
 document.querySelector(".admin-tabs").addEventListener("keydown", handleAdministrationTabKeydown);
+for (const tab of elements.governanceScanTabs) {
+  tab.addEventListener("click", () => {
+    activateGovernanceScanTab(tab.dataset.governanceScanTab);
+  });
+}
+document.querySelector(".governance-scan-tabs").addEventListener("keydown", handleGovernanceScanTabKeydown);
+elements.governanceScanWorkspaces.addEventListener("change", () => {
+  governanceArtifactCatalogWorkspaceKey = "";
+  if (document.querySelector('[data-governance-scan-tab="artifacts"][aria-selected="true"]')) {
+    void loadGovernanceArtifactCatalogs();
+  }
+});
+elements.governanceArtifactSelection.addEventListener("change", event => {
+  const artifactType = event.target.dataset.governanceArtifact;
+  if (artifactType) {
+    for (const checkbox of elements.governanceArtifactItems.querySelectorAll(
+      `[data-governance-artifact-item="${artifactType}"]`
+    )) {
+      checkbox.disabled = !event.target.checked;
+    }
+    if (event.target.checked &&
+        (artifactType === "Apps" || artifactType === "Gateways") &&
+        document.querySelector('[data-governance-scan-tab="artifacts"][aria-selected="true"]')) {
+      void loadGovernanceArtifactCatalogs();
+    }
+  }
+});
+elements.governanceArtifactItems.addEventListener("change", event => {
+  const checkbox = event.target;
+  if (!checkbox.matches("[data-governance-artifact-item]")) {
+    return;
+  }
+
+  const artifactType = checkbox.dataset.governanceArtifactItem;
+  const selectionKey = governanceArtifactSelectionKey(artifactType, checkbox.dataset.workspaceId);
+  const selectedIds = governanceArtifactSelections.get(selectionKey) || new Set();
+  if (checkbox.checked) {
+    selectedIds.add(checkbox.dataset.artifactId);
+  } else {
+    selectedIds.delete(checkbox.dataset.artifactId);
+  }
+  governanceArtifactSelections.set(selectionKey, selectedIds);
+});
 window.addEventListener("popstate", routeWorkspaceFromLocation);
 elements.reloadConfiguration.addEventListener("click", loadReviewConfiguration);
 elements.runGovernanceScan.addEventListener("click", runGovernanceScan);
+elements.governanceWorkspacesNext.addEventListener("click", continueToGovernanceArtifacts);
+elements.governanceArtifactsBack.addEventListener("click", () => activateGovernanceScanTab("workspaces"));
+elements.governanceArtifactsNext.addEventListener("click", continueToGovernanceChecks);
+elements.governanceChecksBack.addEventListener("click", () => activateGovernanceScanTab("artifacts"));
+elements.checkGovernancePowerBiAccess.addEventListener("click", () => {
+  void loadGovernancePowerBiAccess();
+});
+elements.governanceAccessNext.addEventListener("click", () => {
+  activateGovernanceScanTab("workspaces");
+});
+elements.openGovernanceResults.addEventListener("click", () => {
+  elements.governanceResultsDialog.close();
+  elements.governanceResults.scrollIntoView({ behavior: "smooth", block: "start" });
+});
+elements.governanceResultCounts.addEventListener("click", handleGovernanceResultCardClick);
+elements.governanceResultsDialogCounts.addEventListener("click", handleGovernanceResultCardClick);
+elements.clearGovernanceFindingScope.addEventListener("click", () => {
+  governanceFindingCheckFilter = "";
+  renderGovernanceFindingList();
+});
+elements.exportGovernanceAudit.addEventListener("click", exportGovernanceAudit);
+for (const filter of elements.governanceFindingFilters) {
+  filter.addEventListener("click", () => {
+    governanceFindingCheckFilter = "";
+    governanceFindingFilter = filter.dataset.governanceFindingFilter;
+    for (const candidate of elements.governanceFindingFilters) {
+      const selected = candidate === filter;
+      candidate.classList.toggle("is-active", selected);
+      candidate.setAttribute("aria-pressed", String(selected));
+    }
+    elements.governanceFindingList.addEventListener("click", handleGovernanceExceptionAction);
+    elements.governanceExceptionForm.addEventListener("submit", submitGovernanceException);
+    elements.cancelGovernanceException.addEventListener("click", () => {
+      elements.governanceExceptionDialog.close();
+    });
+    renderGovernanceFindingList();
+  });
+}
+elements.confirmGovernanceScan.addEventListener("click", () => {
+  if (!pendingGovernanceScan) {
+    return;
+  }
+
+  const selection = pendingGovernanceScan;
+  pendingGovernanceScan = null;
+  elements.governanceScanConfirmationDialog.close();
+  void executeGovernanceScan(selection);
+});
+elements.cancelGovernanceScan.addEventListener("click", () => {
+  pendingGovernanceScan = null;
+  elements.governanceScanConfirmationDialog.close();
+});
+elements.governanceScanConfirmationDialog.addEventListener("cancel", () => {
+  pendingGovernanceScan = null;
+});
 elements.discoverGovernanceWorkspaces.addEventListener("click", discoverGovernanceWorkspaces);
 elements.useGovernanceWorkspaceSelection.addEventListener("click", useGovernanceWorkspaceSelection);
 elements.saveGovernanceConfiguration.addEventListener("click", saveGovernanceConfiguration);
@@ -149,9 +401,44 @@ elements.reviewSearchForm.addEventListener("submit", searchReviewHistory);
 elements.refreshDashboard.addEventListener("click", loadDashboard);
 elements.waitingTab.addEventListener("click", () => setDashboardStatus("Open"));
 elements.closedTab.addEventListener("click", () => setDashboardStatus("Closed"));
+elements.submitReviewWorkflow.addEventListener("click", submitCurrentReviewWorkflow);
 elements.exportButton.addEventListener("click", exportFeedback);
 elements.severity.addEventListener("change", renderFindings);
 elements.search.addEventListener("input", renderFindings);
+elements.governanceWorkspaceNameFilter.addEventListener("input", filterGovernanceScanWorkspaces);
+elements.governanceWorkspaceCapacityFilter.addEventListener("change", filterGovernanceScanWorkspaces);
+elements.governanceSelectFilteredWorkspaces.addEventListener("click", () => {
+  for (const label of elements.governanceScanWorkspaces.querySelectorAll(
+    "[data-governance-workspace-option]"
+  )) {
+    label.querySelector("[data-governance-scan-workspace]").checked = !label.hidden;
+  }
+});
+for (const tab of elements.findingCategoryTabs) {
+  tab.addEventListener("click", () => {
+    activeFindingCategory = tab.dataset.findingCategory || "all";
+    elements.findingsScrollPanel.scrollTop = 0;
+    renderFindings();
+  });
+  tab.addEventListener("keydown", event => {
+    const currentIndex = elements.findingCategoryTabs.indexOf(tab);
+    const nextIndex = event.key === "ArrowRight"
+      ? (currentIndex + 1) % elements.findingCategoryTabs.length
+      : event.key === "ArrowLeft"
+        ? (currentIndex - 1 + elements.findingCategoryTabs.length) % elements.findingCategoryTabs.length
+        : event.key === "Home"
+          ? 0
+          : event.key === "End"
+            ? elements.findingCategoryTabs.length - 1
+            : -1;
+    if (nextIndex < 0) {
+      return;
+    }
+    event.preventDefault();
+    elements.findingCategoryTabs[nextIndex].focus();
+    elements.findingCategoryTabs[nextIndex].click();
+  });
+}
 void initializeWorkspace();
 
 const modules = [
@@ -226,14 +513,17 @@ const ruleDescriptions = {
   "single-direction-relationships": "Flags bidirectional relationships.",
   "explicit-measures": "Flags implicit numeric columns.",
   "dax-division": "Recommends DIVIDE for DAX division.",
-  "dax-format": "Flags FORMAT calls in measure expressions."
+  "dax-format": "Flags FORMAT calls in measure expressions.",
+  "unused-tables": "Finds tables with no detected DAX or report usage; relationships alone do not establish table usage.",
+  "unused-columns": "Finds columns with no detected relationship, DAX, or report references.",
+  "unused-measures": "Finds measures with no detected DAX or report references."
 };
 
 function setWorkspaceView(view) {
   const isAdministration = view === "administration";
   const wasAdministration = activeWorkspaceView === "administration";
   const selectedModule = modules.find(module => module.key === view);
-  if (!isAdministration && (!selectedModule || moduleAvailability?.[view] !== true)) {
+  if (!isAdministration && (!selectedModule || !isModuleAvailableToCurrentUser(selectedModule))) {
     return;
   }
 
@@ -270,7 +560,32 @@ function setWorkspaceView(view) {
     void loadReviewConfiguration();
   }
   if (isGovernanceAudit) {
-    void loadGovernanceAuditHistory();
+    void loadGovernancePowerBiAccess();
+  }
+}
+
+function isModuleAvailableToCurrentUser(module) {
+  return moduleAvailability?.[module.key] === true &&
+    !(module.key === "governanceAudit" &&
+      applicationSession?.authenticationEnabled &&
+      applicationSession.isAdmin !== true);
+}
+
+function showNoAvailableModules() {
+  activeWorkspaceView = "unavailable";
+  elements.workspaceLoading.hidden = true;
+  elements.reviewWorkspace.hidden = true;
+  elements.governanceWorkspace.hidden = true;
+  elements.adminConfiguration.hidden = true;
+  elements.modulePlaceholder.hidden = false;
+  elements.modulePlaceholderEyebrow.textContent = "NO MODULES AVAILABLE";
+  elements.modulePlaceholderTitle.textContent = "No workspace modules are enabled";
+  elements.modulePlaceholderDescription.textContent =
+    "There are no modules available for your account.";
+  elements.modulePlaceholderStatus.textContent =
+    "Contact your BI Sentinel administrator to enable a workspace module.";
+  for (const navigation of elements.moduleNavigations) {
+    navigation.hidden = true;
   }
 }
 
@@ -278,8 +593,12 @@ function routeWorkspaceFromLocation() {
   const route = window.location.pathname;
   if (route === "/admin" || route.startsWith("/admin/")) {
     if (applicationSession?.authenticationEnabled && !applicationSession.isAdmin) {
-      const availableModule = modules.find(module => moduleAvailability?.[module.key] === true);
-      navigateWorkspace(availableModule?.key ?? "reviews", true);
+      const availableModule = modules.find(isModuleAvailableToCurrentUser);
+      if (availableModule) {
+        navigateWorkspace(availableModule.key, true);
+      } else {
+        showNoAvailableModules();
+      }
       return;
     }
 
@@ -292,17 +611,24 @@ function routeWorkspaceFromLocation() {
   }
 
   const selectedModule = modules.find(module => module.route === route);
-  if (selectedModule && moduleAvailability?.[selectedModule.key] === true) {
+  if (selectedModule && isModuleAvailableToCurrentUser(selectedModule)) {
     setWorkspaceView(selectedModule.key);
     return;
   }
 
-  const fallbackModule = modules.find(module => moduleAvailability?.[module.key] === true);
-  const fallbackView = fallbackModule?.key ?? "administration";
-  navigateWorkspace(fallbackView, true);
+  const fallbackModule = modules.find(isModuleAvailableToCurrentUser);
+  if (fallbackModule) {
+    navigateWorkspace(fallbackModule.key, true);
+  } else {
+    showNoAvailableModules();
+  }
 }
 
 function navigateWorkspace(view, replace = false) {
+  const selectedModule = modules.find(module => module.key === view);
+  if (selectedModule && !isModuleAvailableToCurrentUser(selectedModule)) {
+    return;
+  }
   if (view === "administration" &&
       applicationSession?.authenticationEnabled &&
       !applicationSession.isAdmin) {
@@ -453,9 +779,11 @@ async function loadApplicationUsers() {
       nameCell.textContent = user.displayName;
       emailCell.textContent = user.emailAddress || "(not provided)";
       firstSeenCell.textContent = new Date(user.firstSeenUtc).toLocaleString();
-      roleCell.textContent = user.isAdmin
-        ? (user.isBootstrapAdmin ? "Admin (bootstrap)" : "Admin")
-        : "Review user";
+      const assignedRoles = [];
+      if (user.isAdmin) assignedRoles.push(user.isBootstrapAdmin ? "Admin (bootstrap)" : "Admin");
+      if (user.isManager) assignedRoles.push("Manager");
+      if (user.isLead) assignedRoles.push("Lead");
+      roleCell.textContent = assignedRoles.join(", ") || "Submitter";
       roleButton.type = "button";
       roleButton.className = "button button-secondary";
       roleButton.textContent = user.isAdmin ? "Remove admin" : "Make admin";
@@ -464,8 +792,45 @@ async function loadApplicationUsers() {
         void setApplicationUserAdmin(user, !user.isAdmin, roleButton);
       });
       actionCell.append(roleButton);
+      for (const [roleName, label, isGranted] of [
+        ["ReviewManager", user.isManager ? "Remove Manager" : "Make Manager", user.isManager],
+        ["ReviewLead", user.isLead ? "Remove Lead" : "Make Lead", user.isLead]
+      ]) {
+        const roleToggle = document.createElement("button");
+        roleToggle.type = "button";
+        roleToggle.className = "button button-secondary button-small";
+        roleToggle.textContent = label;
+        roleToggle.addEventListener("click", () => {
+          void setApplicationUserReviewRole(user, roleName, !isGranted, roleToggle);
+        });
+        actionCell.append(roleToggle);
+      }
       row.append(nameCell, emailCell, firstSeenCell, roleCell, actionCell);
       elements.applicationUsersRows.append(row);
+    }
+
+    async function setApplicationUserReviewRole(user, roleName, isGranted, button) {
+      button.disabled = true;
+      elements.applicationUsersError.hidden = true;
+      try {
+        const response = await fetch(
+          `/api/admin/application-users/${encodeURIComponent(user.userId)}/review-role`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ roleName, isGranted })
+          });
+        if (!response.ok) {
+          throw new Error(await readApiError(response, "Reviewer role could not be changed."));
+        }
+
+        await loadApplicationUsers();
+      } catch (error) {
+        button.disabled = false;
+        elements.applicationUsersError.textContent =
+          error instanceof Error ? error.message : "Reviewer role could not be changed.";
+        elements.applicationUsersError.hidden = false;
+      }
     }
 
     elements.applicationUsersEmpty.hidden = users.length > 0;
@@ -559,6 +924,7 @@ async function loadAuthenticationSession() {
   elements.accountName.textContent =
     applicationSession.displayName || applicationSession.emailAddress || "Signed-in user";
   elements.administrationNavigation.hidden = !applicationSession.isAdmin;
+  updateExportButton();
 }
 
 function renderModuleAvailability(availability) {
@@ -570,7 +936,9 @@ function renderModuleAvailability(availability) {
     modules.map(module => [module.key, availability[module.key] === true])
   );
   for (const navigation of elements.moduleNavigations) {
-    navigation.hidden = moduleAvailability[navigation.dataset.moduleNavigation] !== true;
+    const module = modules.find(item => item.key === navigation.dataset.moduleNavigation);
+    navigation.hidden = !module || !isModuleAvailableToCurrentUser(module) ||
+      (navigation.dataset.adminOnly === "true" && applicationSession?.isAdmin !== true);
   }
 
   elements.moduleAvailabilityList.replaceChildren();
@@ -588,9 +956,12 @@ function renderModuleAvailability(availability) {
   }
 
   if (activeWorkspaceView !== "administration" && moduleAvailability[activeWorkspaceView] !== true) {
-    const firstEnabledModule = modules.find(module => moduleAvailability[module.key]);
-    const fallbackView = firstEnabledModule?.key ?? "administration";
-    navigateWorkspace(fallbackView, true);
+    const firstEnabledModule = modules.find(isModuleAvailableToCurrentUser);
+    if (firstEnabledModule) {
+      navigateWorkspace(firstEnabledModule.key, true);
+    } else {
+      showNoAvailableModules();
+    }
   }
 }
 
@@ -637,6 +1008,7 @@ async function loadGovernanceConfiguration() {
     const result = await response.json();
     governanceConfigurationVersion = result.version;
     elements.governanceWorkspaceIds.value = result.workspaceIds.join("\n");
+    governanceScanScopeLoaded = false;
     elements.governanceConfigVersion.textContent =
       `Configuration version ${result.version} · Updated ${new Date(result.updatedUtc).toLocaleString()} · ${result.updatedBy}`;
     elements.governanceConfigStatus.textContent = "Approved workspace scope loaded.";
@@ -689,11 +1061,477 @@ async function discoverGovernanceWorkspaces() {
   }
 }
 
+function filterGovernanceScanWorkspaces() {
+  const nameQuery = elements.governanceWorkspaceNameFilter.value.trim().toLocaleLowerCase();
+  const capacity = elements.governanceWorkspaceCapacityFilter.value;
+  for (const label of elements.governanceScanWorkspaces.querySelectorAll(
+    "[data-governance-workspace-option]"
+  )) {
+    const nameMatches = label.dataset.workspaceName.toLocaleLowerCase().includes(nameQuery);
+    const isDedicated = label.dataset.dedicatedCapacity === "true";
+    const capacityMatches = capacity === "all" ||
+      (capacity === "dedicated" && isDedicated) ||
+      (capacity === "shared" && !isDedicated);
+    label.hidden = !nameMatches || !capacityMatches;
+  }
+}
+
 function useGovernanceWorkspaceSelection() {
   const selectedIds = [...elements.governanceWorkspaceDiscovery.querySelectorAll(
     "[data-governance-workspace]:checked"
   )].map(checkbox => checkbox.dataset.governanceWorkspace);
   elements.governanceWorkspaceIds.value = selectedIds.join("\n");
+}
+
+async function loadGovernanceScanScope() {
+  if (governanceScanScopeLoaded) {
+    return true;
+  }
+
+  elements.governanceScanWorkspaces.replaceChildren();
+  try {
+    const scopeResponse = await fetch("/api/governance-audit/scan-scope", {
+      headers: { Accept: "application/json" }
+    });
+    if (!scopeResponse.ok) {
+      throw new Error(await readApiError(scopeResponse, "The approved scan scope could not be loaded."));
+    }
+
+    const scope = await scopeResponse.json();
+    const workspaceIds = [...new Set(scope.workspaceIds)];
+    if (workspaceIds.length === 0) {
+      const emptyState = document.createElement("p");
+      emptyState.className = "dashboard-empty";
+      emptyState.textContent =
+        "No workspaces are approved yet. Add the approved workspace IDs under Administration → Governance Audit.";
+      elements.governanceScanWorkspaces.append(emptyState);
+      governanceScanScopeLoaded = true;
+      return true;
+    }
+    if (workspaceIds.length > scope.maximumWorkspaces) {
+      throw new Error(
+        "The approved scope exceeds the server's maximum scan size. Reduce it under Administration → Governance Audit."
+      );
+    }
+
+    const workspaceResponse = await fetch("/api/governance-audit/scan-workspaces", {
+      headers: { Accept: "application/json" }
+    });
+    if (!workspaceResponse.ok) {
+      throw new Error(await readApiError(workspaceResponse, "Approved workspace names could not be loaded."));
+    }
+    const workspaces = await workspaceResponse.json();
+    const workspaceDetails = new Map(workspaces.map(workspace => [
+      workspace.id.toLocaleLowerCase(),
+      workspace
+    ]));
+    const missingNames = workspaceIds.filter(workspaceId => {
+      const workspace = workspaceDetails.get(workspaceId.toLocaleLowerCase());
+      return !workspace || !workspace.name;
+    });
+    if (missingNames.length > 0) {
+      throw new Error(
+        `${missingNames.length} approved workspace name(s) could not be verified from Power BI. Check the delegated access and workspace allowlist.`
+      );
+    }
+
+    for (const workspaceId of workspaceIds) {
+      const label = document.createElement("label");
+      label.className = "module-availability-option";
+      label.dataset.governanceWorkspaceOption = "";
+      label.dataset.workspaceName = workspaceDetails.get(workspaceId.toLocaleLowerCase()).name;
+      label.dataset.dedicatedCapacity = String(
+        workspaceDetails.get(workspaceId.toLocaleLowerCase()).isOnDedicatedCapacity === true
+      );
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.dataset.governanceScanWorkspace = workspaceId;
+      checkbox.checked = true;
+      const name = document.createElement("span");
+      name.textContent = workspaceDetails.get(workspaceId.toLocaleLowerCase()).name;
+      label.append(checkbox, name);
+      elements.governanceScanWorkspaces.append(label);
+    }
+    filterGovernanceScanWorkspaces();
+    governanceScanScopeLoaded = true;
+    return true;
+  } catch (error) {
+    elements.governanceScanWorkspaces.textContent =
+      error instanceof Error ? error.message : "The approved scan scope could not be loaded.";
+    return false;
+  }
+}
+
+function activateGovernanceScanTab(tabName) {
+  if (tabName !== "access" && governancePowerBiAuthorized !== true) {
+    return;
+  }
+  for (const tab of elements.governanceScanTabs) {
+    const isActive = tab.dataset.governanceScanTab === tabName;
+    tab.setAttribute("aria-selected", String(isActive));
+    tab.classList.toggle("is-active", isActive);
+  }
+  for (const panel of elements.governanceScanPanels) {
+    panel.hidden = panel.dataset.governanceScanPanel !== tabName;
+  }
+  if (tabName === "artifacts") {
+    void loadGovernanceArtifactCatalogs();
+  }
+}
+
+async function loadGovernancePowerBiAccess() {
+  elements.checkGovernancePowerBiAccess.disabled = true;
+  elements.governancePowerBiAccessStatus.classList.remove("is-authorized", "is-unauthorized");
+  elements.governancePowerBiAccessStatus.querySelector("span:last-child").textContent =
+    "Checking delegated Power BI access…";
+  elements.governancePowerBiAccessStatus.querySelector(".governance-status-icon")
+    .replaceChildren(createGovernanceIcon("information"));
+  try {
+    const response = await fetch("/api/governance-audit/access-status", {
+      headers: { Accept: "application/json" }
+    });
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Power BI access could not be checked."));
+    }
+
+    const result = await response.json();
+    governancePowerBiAuthorized = result.authorized === true;
+    const statusText = elements.governancePowerBiAccessStatus.querySelector("span:last-child");
+    const icon = elements.governancePowerBiAccessStatus.querySelector(".governance-status-icon");
+    if (governancePowerBiAuthorized) {
+      elements.governancePowerBiAccessStatus.classList.add("is-authorized");
+      statusText.textContent = result.modelMetadataAuthorized === true
+        ? "Power BI access is ready. OPT checks still require a Fabric administrator and enabled tenant metadata-scanning settings."
+        : "Workspace access is ready, but Tenant.Read.All consent is missing. Authorize metadata access to run OPT checks; those checks will otherwise show insufficient evidence.";
+      icon.replaceChildren(createGovernanceIcon("check"));
+      elements.authorizeGovernancePowerBi.hidden = result.modelMetadataAuthorized === true;
+      elements.governanceAccessNext.disabled = false;
+      for (const tab of elements.governanceScanTabs) {
+        tab.disabled = false;
+      }
+      void loadGovernanceCheckCatalog();
+      void loadGovernanceScanScope();
+      void loadGovernanceAuditHistory();
+    } else {
+      elements.governancePowerBiAccessStatus.classList.add("is-unauthorized");
+      statusText.textContent =
+        "Power BI read access has not been authorized. Authorize it to unlock workspace selection.";
+      icon.replaceChildren(createGovernanceIcon("warning"));
+      elements.authorizeGovernancePowerBi.hidden = false;
+      elements.governanceAccessNext.disabled = true;
+      for (const tab of elements.governanceScanTabs) {
+        tab.disabled = tab.dataset.governanceScanTab !== "access";
+      }
+      activateGovernanceScanTab("access");
+    }
+  } catch (error) {
+    governancePowerBiAuthorized = false;
+    elements.governancePowerBiAccessStatus.classList.add("is-unauthorized");
+    elements.governancePowerBiAccessStatus.querySelector("span:last-child").textContent =
+      error instanceof Error ? error.message : "Power BI access could not be checked.";
+    elements.governancePowerBiAccessStatus.querySelector(".governance-status-icon")
+      .replaceChildren(createGovernanceIcon("warning"));
+    elements.authorizeGovernancePowerBi.hidden = false;
+    elements.governanceAccessNext.disabled = true;
+    for (const tab of elements.governanceScanTabs) {
+      tab.disabled = tab.dataset.governanceScanTab !== "access";
+    }
+    activateGovernanceScanTab("access");
+  } finally {
+    elements.checkGovernancePowerBiAccess.disabled = false;
+  }
+}
+
+async function continueToGovernanceArtifacts() {
+  const selectedWorkspaceCount = elements.governanceScanWorkspaces.querySelectorAll(
+    "[data-governance-scan-workspace]:checked"
+  ).length;
+  if (selectedWorkspaceCount === 0) {
+    showGovernanceScanError("Select at least one approved workspace before continuing.");
+    return;
+  }
+
+  await loadGovernanceArtifactCatalogs();
+  const workspaceKey = [...elements.governanceScanWorkspaces.querySelectorAll(
+    "[data-governance-scan-workspace]:checked"
+  )]
+    .map(checkbox => checkbox.dataset.governanceScanWorkspace.toLocaleLowerCase())
+    .sort()
+    .join(",");
+  if (governanceArtifactCatalogWorkspaceKey !== workspaceKey) {
+    showGovernanceScanError("Reports and dashboards could not be loaded. Resolve the artifact-list error before continuing.");
+    return;
+  }
+
+  elements.governanceError.hidden = true;
+  activateGovernanceScanTab("artifacts");
+}
+
+async function continueToGovernanceChecks() {
+  await loadGovernanceArtifactCatalogs();
+  const selectedArtifactTypes = elements.governanceArtifactSelection.querySelectorAll(
+    "[data-governance-artifact]:checked"
+  );
+  if (selectedArtifactTypes.length === 0) {
+    showGovernanceScanError("Select at least one supported artifact type before continuing.");
+    return;
+  }
+
+  const unavailableGlobalType = [...selectedArtifactTypes].find(checkbox =>
+    (checkbox.dataset.governanceArtifact === "Apps" || checkbox.dataset.governanceArtifact === "Gateways") &&
+    (governanceGlobalArtifactCatalogs[checkbox.dataset.governanceArtifact] === null ||
+      governanceGlobalArtifactErrors[checkbox.dataset.governanceArtifact])
+  );
+  if (unavailableGlobalType) {
+    showGovernanceScanError(governanceGlobalArtifactErrors[unavailableGlobalType.dataset.governanceArtifact] ||
+      `The ${unavailableGlobalType.dataset.governanceArtifact.toLocaleLowerCase()} list could not be verified.`);
+    return;
+  }
+
+  elements.governanceError.hidden = true;
+  activateGovernanceScanTab("checks");
+}
+
+function showGovernanceScanError(message) {
+  elements.governanceError.textContent = message;
+  elements.governanceError.hidden = false;
+  elements.governanceError.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function handleGovernanceScanTabKeydown(event) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) {
+    return;
+  }
+  event.preventDefault();
+  const activeIndex = elements.governanceScanTabs.findIndex(
+    tab => tab.getAttribute("aria-selected") === "true"
+  );
+  const nextIndex = event.key === "Home"
+    ? 0
+    : event.key === "End"
+      ? elements.governanceScanTabs.length - 1
+      : (activeIndex + (event.key === "ArrowRight" ? 1 : -1) + elements.governanceScanTabs.length) %
+        elements.governanceScanTabs.length;
+  const nextTab = elements.governanceScanTabs[nextIndex];
+  nextTab.focus();
+  activateGovernanceScanTab(nextTab.dataset.governanceScanTab);
+}
+
+async function loadGovernanceArtifactCatalogs() {
+  const selectedWorkspaces = [...elements.governanceScanWorkspaces.querySelectorAll(
+    "[data-governance-scan-workspace]:checked"
+  )];
+  const workspaceIds = selectedWorkspaces.map(checkbox => checkbox.dataset.governanceScanWorkspace);
+  const workspaceKey = workspaceIds.map(id => id.toLocaleLowerCase()).sort().join(",");
+  const requestId = ++governanceArtifactCatalogRequest;
+  const selectedArtifactTypes = [...elements.governanceArtifactSelection.querySelectorAll(
+    "[data-governance-artifact]:checked"
+  )].map(checkbox => checkbox.dataset.governanceArtifact);
+  if (workspaceIds.length === 0) {
+    governanceArtifactCatalogWorkspaceKey = "";
+    elements.governanceArtifactItems.replaceChildren();
+    const emptyState = document.createElement("p");
+    emptyState.className = "dashboard-empty";
+    emptyState.textContent = "Select at least one approved workspace to load reports and dashboards.";
+    elements.governanceArtifactItems.append(emptyState);
+    return;
+  }
+  elements.governanceArtifactItems.replaceChildren();
+  const loading = document.createElement("p");
+  loading.className = "dashboard-empty";
+  loading.textContent = "Loading reports and dashboards for selected workspaces…";
+  elements.governanceArtifactItems.append(loading);
+
+  try {
+    let nextWorkspaceIndex = 0;
+    const workers = Array.from({ length: Math.min(4, workspaceIds.length) }, async () => {
+      while (nextWorkspaceIndex < workspaceIds.length) {
+        const workspaceId = workspaceIds[nextWorkspaceIndex++];
+        const cacheKey = workspaceId.toLocaleLowerCase();
+        if (governanceArtifactCatalogs.has(cacheKey)) {
+          continue;
+        }
+        const response = await fetch(
+          `/api/governance-audit/workspaces/${encodeURIComponent(workspaceId)}/artifacts`,
+          { headers: { Accept: "application/json" } }
+        );
+        if (!response.ok) {
+          throw new Error(await readApiError(response, `Artifacts for workspace could not be loaded.`));
+        }
+        const catalog = await response.json();
+        if (catalog.workspaceId.toLocaleLowerCase() !== cacheKey) {
+          throw new Error("Power BI returned an artifact catalog for a different workspace.");
+        }
+        governanceArtifactCatalogs.set(cacheKey, catalog);
+        for (const [artifactType, artifacts] of [
+          ["Reports", catalog.reports],
+          ["Dashboards", catalog.dashboards]
+        ]) {
+          const selectionKey = governanceArtifactSelectionKey(artifactType, workspaceId);
+          if (!governanceArtifactSelections.has(selectionKey)) {
+            governanceArtifactSelections.set(selectionKey, new Set(artifacts.map(artifact => artifact.id)));
+          }
+        }
+      }
+    });
+    const globalCatalogLoads = [];
+    for (const [artifactType, endpoint] of [
+      ["Apps", "/api/governance-audit/apps"],
+      ["Gateways", "/api/governance-audit/gateways"]
+    ]) {
+      if (!selectedArtifactTypes.includes(artifactType) ||
+          governanceGlobalArtifactCatalogs[artifactType] !== null) {
+        continue;
+      }
+      globalCatalogLoads.push((async () => {
+        try {
+          const response = await fetch(endpoint, { headers: { Accept: "application/json" } });
+          if (!response.ok) {
+            throw new Error(await readApiError(response, `${artifactType} could not be loaded.`));
+          }
+          const artifacts = await response.json();
+          governanceGlobalArtifactCatalogs[artifactType] = artifacts;
+          governanceGlobalArtifactErrors[artifactType] = "";
+          const selectionKey = governanceArtifactSelectionKey(artifactType, "account");
+          if (!governanceArtifactSelections.has(selectionKey)) {
+            governanceArtifactSelections.set(selectionKey, new Set(artifacts.map(artifact => artifact.id)));
+          }
+        } catch (error) {
+          governanceGlobalArtifactErrors[artifactType] = error instanceof Error
+            ? error.message
+            : `${artifactType} could not be loaded from Power BI.`;
+        }
+      })());
+    }
+    const workerResults = await Promise.allSettled([...workers, ...globalCatalogLoads]);
+    const failedWorker = workerResults.find(result => result.status === "rejected");
+    if (failedWorker) {
+      throw failedWorker.reason;
+    }
+    if (requestId !== governanceArtifactCatalogRequest) {
+      return;
+    }
+
+    renderGovernanceArtifactCatalogs(selectedWorkspaces, workspaceIds, selectedArtifactTypes);
+    governanceArtifactCatalogWorkspaceKey = workspaceKey;
+  } catch (error) {
+    if (requestId === governanceArtifactCatalogRequest) {
+      elements.governanceArtifactItems.replaceChildren();
+      const errorState = document.createElement("p");
+      errorState.className = "error-banner";
+      errorState.textContent = error instanceof Error
+        ? error.message
+        : "Reports and dashboards could not be loaded from Power BI.";
+      elements.governanceArtifactItems.append(errorState);
+      governanceArtifactCatalogWorkspaceKey = "";
+    }
+  }
+}
+
+function renderGovernanceArtifactCatalogs(selectedWorkspaces, workspaceIds, selectedArtifactTypes) {
+  elements.governanceArtifactItems.replaceChildren();
+  let artifactCount = 0;
+  for (const [index, workspaceId] of workspaceIds.entries()) {
+    const catalog = governanceArtifactCatalogs.get(workspaceId.toLocaleLowerCase());
+    const workspaceName = selectedWorkspaces[index].parentElement.querySelector("span").textContent;
+    for (const [artifactType, title, artifacts] of [
+      ["Reports", "Reports", catalog.reports],
+      ["Dashboards", "Dashboards", catalog.dashboards]
+    ]) {
+      const group = document.createElement("section");
+      group.className = "governance-artifact-group";
+      const heading = document.createElement("h3");
+      heading.textContent = `${title} · ${workspaceName}`;
+      group.append(heading);
+      if (artifacts.length === 0) {
+        const emptyState = document.createElement("p");
+        emptyState.className = "dashboard-empty";
+        emptyState.textContent = `No ${title.toLocaleLowerCase()} were returned for this workspace.`;
+        group.append(emptyState);
+      }
+      const selection = governanceArtifactSelections.get(
+        governanceArtifactSelectionKey(artifactType, workspaceId)
+      );
+      const typeEnabled = elements.governanceArtifactSelection.querySelector(
+        `[data-governance-artifact="${artifactType}"]`
+      ).checked;
+      for (const artifact of artifacts) {
+        const label = document.createElement("label");
+        label.className = "module-availability-option";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.dataset.governanceArtifactItem = artifactType;
+        checkbox.dataset.artifactId = artifact.id;
+        checkbox.dataset.workspaceId = workspaceId;
+        checkbox.checked = selection.has(artifact.id);
+        checkbox.disabled = !typeEnabled;
+        const name = document.createElement("span");
+        name.textContent = artifact.name;
+        label.append(checkbox, name);
+        group.append(label);
+        artifactCount++;
+      }
+      elements.governanceArtifactItems.append(group);
+    }
+  }
+  for (const artifactType of ["Apps", "Gateways"]) {
+    if (!selectedArtifactTypes.includes(artifactType)) {
+      continue;
+    }
+    const group = document.createElement("section");
+    group.className = "governance-artifact-group";
+    const heading = document.createElement("h3");
+    heading.textContent = artifactType === "Apps"
+      ? "Installed apps · signed-in account"
+      : "Gateways · where the signed-in user is an admin";
+    group.append(heading);
+    if (governanceGlobalArtifactErrors[artifactType]) {
+      const errorState = document.createElement("p");
+      errorState.className = "error-banner";
+      errorState.textContent = governanceGlobalArtifactErrors[artifactType];
+      group.append(errorState);
+      elements.governanceArtifactItems.append(group);
+      continue;
+    }
+    const artifacts = governanceGlobalArtifactCatalogs[artifactType] || [];
+    const selection = governanceArtifactSelections.get(
+      governanceArtifactSelectionKey(artifactType, "account")
+    ) || new Set();
+    if (artifacts.length === 0) {
+      const emptyState = document.createElement("p");
+      emptyState.className = "dashboard-empty";
+      emptyState.textContent = artifactType === "Gateways"
+        ? "No gateways were returned for this user. Power BI lists only gateways where you are an administrator."
+        : "No installed apps were returned for this user.";
+      group.append(emptyState);
+    }
+    for (const artifact of artifacts) {
+      const label = document.createElement("label");
+      label.className = "module-availability-option";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.dataset.governanceArtifactItem = artifactType;
+      checkbox.dataset.artifactId = artifact.id;
+      checkbox.dataset.workspaceId = "account";
+      checkbox.checked = selection.has(artifact.id);
+      const name = document.createElement("span");
+      name.textContent = artifact.name;
+      label.append(checkbox, name);
+      group.append(label);
+      artifactCount++;
+    }
+    elements.governanceArtifactItems.append(group);
+  }
+  if (artifactCount === 0) {
+    const emptyState = document.createElement("p");
+    emptyState.className = "dashboard-empty";
+    emptyState.textContent = "No selectable artifacts were returned from the selected scope.";
+    elements.governanceArtifactItems.append(emptyState);
+  }
+}
+
+function governanceArtifactSelectionKey(artifactType, workspaceId) {
+  return `${artifactType}:${workspaceId.toLocaleLowerCase()}`;
 }
 
 async function saveGovernanceConfiguration() {
@@ -726,6 +1564,10 @@ async function saveGovernanceConfiguration() {
     elements.governanceConfigVersion.textContent =
       `Configuration version ${result.version} · Updated ${new Date(result.updatedUtc).toLocaleString()} · ${result.updatedBy}`;
     elements.governanceConfigStatus.textContent = "Approved workspace scope saved.";
+    governanceScanScopeLoaded = false;
+    governanceArtifactCatalogs.clear();
+    governanceArtifactSelections.clear();
+    governanceArtifactCatalogWorkspaceKey = "";
   } catch (error) {
     elements.governanceConfigError.textContent =
       error instanceof Error ? error.message : "Governance Audit scope could not be saved.";
@@ -737,12 +1579,287 @@ async function saveGovernanceConfiguration() {
 }
 
 async function runGovernanceScan() {
+  if (governanceScanPreparing) {
+    return;
+  }
+  governanceScanPreparing = true;
+  try {
+    await prepareGovernanceScan();
+  } finally {
+    governanceScanPreparing = false;
+  }
+}
+
+async function prepareGovernanceScan() {
+  if (!governanceScanScopeLoaded) {
+    const scopeLoaded = await loadGovernanceScanScope();
+    if (!scopeLoaded) {
+      elements.governanceError.textContent =
+        "The approved workspace list could not be loaded. Resolve the scope error above before scanning.";
+      elements.governanceError.hidden = false;
+      return;
+    }
+  }
+
+  if (!governanceCheckCatalogLoaded) {
+    elements.governanceError.textContent = "The governance check catalog is unavailable. Reload the page before scanning.";
+    elements.governanceError.hidden = false;
+    return;
+  }
+
+  const selectedChecks = [...elements.governanceCheckSelection.querySelectorAll(
+    "[data-governance-check]:checked"
+  )].map(checkbox => checkbox.dataset.governanceCheck);
+  if (selectedChecks.length === 0) {
+    elements.governanceError.textContent = "Select at least one governance check before scanning.";
+    elements.governanceError.hidden = false;
+    return;
+  }
+
+  const selectedWorkspaceIds = [...elements.governanceScanWorkspaces.querySelectorAll(
+    "[data-governance-scan-workspace]:checked"
+  )].map(checkbox => checkbox.dataset.governanceScanWorkspace);
+  if (selectedWorkspaceIds.length === 0) {
+    elements.governanceError.textContent = "Select at least one approved workspace before scanning.";
+    elements.governanceError.hidden = false;
+    return;
+  }
+
+  const selectedArtifactTypes = [...elements.governanceArtifactSelection.querySelectorAll(
+    "[data-governance-artifact]:checked"
+  )].map(checkbox => checkbox.dataset.governanceArtifact);
+  if (selectedArtifactTypes.length === 0) {
+    elements.governanceError.textContent = "Select at least one supported artifact type before scanning.";
+    elements.governanceError.hidden = false;
+    return;
+  }
+
+  if (selectedArtifactTypes.some(type =>
+    type === "Reports" || type === "Dashboards" || type === "Apps" || type === "Gateways")) {
+    await loadGovernanceArtifactCatalogs();
+    const workspaceKey = selectedWorkspaceIds.map(id => id.toLocaleLowerCase()).sort().join(",");
+    if (governanceArtifactCatalogWorkspaceKey !== workspaceKey) {
+      elements.governanceError.textContent =
+        "The report and dashboard lists could not be verified for the selected workspaces. Resolve the artifact-list error before scanning.";
+      elements.governanceError.hidden = false;
+      return;
+    }
+    const unavailableGlobalType = selectedArtifactTypes.find(type =>
+      (type === "Apps" || type === "Gateways") &&
+      governanceGlobalArtifactCatalogs[type] === null);
+    if (unavailableGlobalType) {
+      elements.governanceError.textContent = governanceGlobalArtifactErrors[unavailableGlobalType] ||
+        `The ${unavailableGlobalType.toLocaleLowerCase()} list could not be verified.`;
+      elements.governanceError.hidden = false;
+      return;
+    }
+    const currentWorkspaceIds = [...elements.governanceScanWorkspaces.querySelectorAll(
+      "[data-governance-scan-workspace]:checked"
+    )].map(checkbox => checkbox.dataset.governanceScanWorkspace);
+    const currentArtifactTypes = [...elements.governanceArtifactSelection.querySelectorAll(
+      "[data-governance-artifact]:checked"
+    )].map(checkbox => checkbox.dataset.governanceArtifact);
+    const currentCheckIds = [...elements.governanceCheckSelection.querySelectorAll(
+      "[data-governance-check]:checked"
+    )].map(checkbox => checkbox.dataset.governanceCheck);
+    if (workspaceKey !== currentWorkspaceIds.map(id => id.toLocaleLowerCase()).sort().join(",") ||
+        selectedArtifactTypes.join("|") !== currentArtifactTypes.join("|") ||
+        selectedChecks.join("|") !== currentCheckIds.join("|")) {
+      elements.governanceError.textContent =
+        "Your scan selections changed while artifact lists were loading. Review the current selections and run again.";
+      elements.governanceError.hidden = false;
+      return;
+    }
+  }
+
+  const reportSelection = selectedArtifactTypes.includes("Reports")
+    ? getGovernanceArtifactSelection("Reports", selectedWorkspaceIds)
+    : { filter: false, ids: [], names: [] };
+  const dashboardSelection = selectedArtifactTypes.includes("Dashboards")
+    ? getGovernanceArtifactSelection("Dashboards", selectedWorkspaceIds)
+    : { filter: false, ids: [], names: [] };
+  const appSelection = selectedArtifactTypes.includes("Apps")
+    ? getGovernanceArtifactSelection("Apps", selectedWorkspaceIds)
+    : { filter: false, ids: [], names: [] };
+  const gatewaySelection = selectedArtifactTypes.includes("Gateways")
+    ? getGovernanceArtifactSelection("Gateways", selectedWorkspaceIds)
+    : { filter: false, ids: [], names: [] };
+  for (const [artifactType, selection] of [
+    ["Reports", reportSelection],
+    ["Dashboards", dashboardSelection],
+    ["Apps", appSelection],
+    ["Gateways", gatewaySelection]
+  ]) {
+    if (selection.filter && selection.ids.length === 0) {
+      elements.governanceError.textContent =
+        `Select at least one ${artifactType === "SemanticModels" ? "semantic model" : artifactType.slice(0, -1)} or uncheck ${artifactType} before scanning.`;
+      elements.governanceError.hidden = false;
+      return;
+    }
+    if (selection.ids.some(id => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id))) {
+      elements.governanceError.textContent =
+        `The ${artifactType.toLocaleLowerCase()} list contains an invalid ID. Reload the list before scanning.`;
+      elements.governanceError.hidden = false;
+      return;
+    }
+  }
+  const workspaceLabels = [...elements.governanceScanWorkspaces.querySelectorAll(
+    "[data-governance-scan-workspace]:checked"
+  )].map(checkbox => checkbox.parentElement.querySelector("span")?.textContent || checkbox.dataset.governanceScanWorkspace);
+  const checkLabels = [...elements.governanceCheckSelection.querySelectorAll(
+    "[data-governance-check]:checked"
+  )].map(checkbox => checkbox.parentElement.querySelector("span")?.textContent || checkbox.dataset.governanceCheck);
+  pendingGovernanceScan = {
+    selectedChecks,
+    selectedWorkspaceIds,
+    selectedArtifactTypes,
+    reportIds: reportSelection.ids,
+    dashboardIds: dashboardSelection.ids,
+    appIds: appSelection.ids,
+    gatewayIds: gatewaySelection.ids,
+    filterReports: reportSelection.filter,
+    filterDashboards: dashboardSelection.filter,
+    filterApps: appSelection.filter,
+    filterGateways: gatewaySelection.filter
+  };
+  elements.governanceScanConfirmationSummary.replaceChildren();
+  const reportSummary = selectedArtifactTypes.includes("Reports")
+    ? reportSelection.filter ? summarizeGovernanceArtifactSelection(reportSelection) : ["All reports in selected workspaces"]
+    : ["Not selected"];
+  const dashboardSummary = selectedArtifactTypes.includes("Dashboards")
+    ? dashboardSelection.filter ? summarizeGovernanceArtifactSelection(dashboardSelection) : ["All dashboards in selected workspaces"]
+    : ["Not selected"];
+  const appSummary = selectedArtifactTypes.includes("Apps")
+    ? appSelection.filter ? summarizeGovernanceArtifactSelection(appSelection) : ["All installed apps visible to the signed-in user"]
+    : ["Not selected"];
+  const gatewaySummary = selectedArtifactTypes.includes("Gateways")
+    ? gatewaySelection.filter ? summarizeGovernanceArtifactSelection(gatewaySelection) : ["All gateways visible to the signed-in gateway admins"]
+    : ["Not selected"];
+  for (const [label, values] of [
+    [`Workspaces (${workspaceLabels.length})`, workspaceLabels],
+    ["Artifact types", selectedArtifactTypes.map(type => type === "SemanticModels" ? "Semantic models" : type)],
+    ["Reports", reportSummary],
+    ["Dashboards", dashboardSummary],
+    ["Apps (account-level)", appSummary],
+    ["Gateways (account-level)", gatewaySummary],
+    [`Governance checks (${checkLabels.length})`, checkLabels],
+    ...(selectedChecks.some(checkId => checkId.startsWith("OPT-"))
+      ? [["Model-object checks", ["Automatically queried from each selected semantic model; unsupported metadata is reported as an evidence gap"]]]
+      : [])
+  ]) {
+    const item = document.createElement("li");
+    item.textContent = `${label}: ${values.join(", ")}`;
+    elements.governanceScanConfirmationSummary.append(item);
+  }
+  elements.governanceScanConfirmationDialog.showModal();
+}
+
+function summarizeGovernanceArtifactSelection(selection) {
+  if (selection.names.length === 0) {
+    return ["None selected"];
+  }
+  const names = selection.names.slice(0, 10);
+  if (selection.names.length > names.length) {
+    names.push(`and ${selection.names.length - names.length} more`);
+  }
+  return [`${selection.names.length} selected: ${names.join(", ")}`];
+}
+
+function getGovernanceArtifactSelection(artifactType, workspaceIds) {
+  const ids = [];
+  const names = [];
+  let filter = false;
+  if (artifactType === "Apps" || artifactType === "Gateways") {
+    const artifacts = governanceGlobalArtifactCatalogs[artifactType];
+    if (!artifacts) {
+      throw new Error(governanceGlobalArtifactErrors[artifactType] ||
+        `The ${artifactType.toLocaleLowerCase()} list could not be verified.`);
+    }
+    const selectedIds = governanceArtifactSelections.get(
+      governanceArtifactSelectionKey(artifactType, "account")
+    ) || new Set(artifacts.map(artifact => artifact.id));
+    filter = selectedIds.size !== artifacts.length;
+    for (const artifact of artifacts) {
+      if (selectedIds.has(artifact.id)) {
+        ids.push(artifact.id);
+        names.push(artifact.name);
+      }
+    }
+    return { filter, ids, names };
+  }
+  for (const workspaceId of workspaceIds) {
+    const catalog = governanceArtifactCatalogs.get(workspaceId.toLocaleLowerCase());
+    const artifacts = artifactType === "Reports" ? catalog.reports : catalog.dashboards;
+    const selectedIds = governanceArtifactSelections.get(
+      governanceArtifactSelectionKey(artifactType, workspaceId)
+    ) || new Set(artifacts.map(artifact => artifact.id));
+    if (selectedIds.size !== artifacts.length) {
+      filter = true;
+    }
+    for (const artifact of artifacts) {
+      if (selectedIds.has(artifact.id)) {
+        ids.push(artifact.id);
+        names.push(artifact.name);
+      }
+    }
+  }
+  return { filter, ids, names };
+}
+
+async function executeGovernanceScan({
+  selectedChecks,
+  selectedWorkspaceIds,
+  selectedArtifactTypes,
+  reportIds,
+  dashboardIds,
+  appIds,
+  gatewayIds,
+  filterReports,
+  filterDashboards,
+  filterApps,
+  filterGateways
+}) {
   elements.runGovernanceScan.disabled = true;
   elements.governanceError.hidden = true;
   elements.governanceResults.hidden = true;
   elements.governanceStatus.textContent = "Reading approved workspaces from Power BI…";
+  const finishLoading = beginGlobalLoading("Scanning selected Power BI workspaces…");
   try {
-    const response = await fetch("/api/governance-audit/scan", {
+    const query = new URLSearchParams();
+    for (const checkId of selectedChecks) {
+      query.append("checks", checkId);
+    }
+    for (const workspaceId of selectedWorkspaceIds) {
+      query.append("workspaceIds", workspaceId);
+    }
+    for (const artifactType of selectedArtifactTypes) {
+      query.append("artifactTypes", artifactType);
+    }
+    if (filterReports) {
+      query.set("filterReports", "true");
+      for (const reportId of reportIds) {
+        query.append("reportIds", reportId);
+      }
+    }
+    if (filterDashboards) {
+      query.set("filterDashboards", "true");
+      for (const dashboardId of dashboardIds) {
+        query.append("dashboardIds", dashboardId);
+      }
+    }
+    if (filterApps) {
+      query.set("filterApps", "true");
+      for (const appId of appIds) {
+        query.append("appIds", appId);
+      }
+    }
+    if (filterGateways) {
+      query.set("filterGateways", "true");
+      for (const gatewayId of gatewayIds) {
+        query.append("gatewayIds", gatewayId);
+      }
+    }
+    const response = await fetch(`/api/governance-audit/scan?${query}`, {
       method: "POST",
       headers: { Accept: "application/json" }
     });
@@ -750,11 +1867,17 @@ async function runGovernanceScan() {
       throw new Error(await readApiError(response, "Governance Audit scan failed."));
     }
 
-    renderGovernanceAudit(await response.json());
+    const result = await response.json();
+    renderGovernanceAudit(result);
     await loadGovernanceAuditHistory();
     elements.governanceResults.hidden = false;
     elements.governanceStatus.textContent =
       `Read-only scan completed at ${new Date().toLocaleString()}.`;
+    const counts = getGovernanceFindingCounts(result.findings || []);
+    elements.governanceResultsDialogSummary.textContent =
+      `${result.workspaces.length} workspace${result.workspaces.length === 1 ? "" : "s"} scanned.`;
+    renderGovernanceResultCountCards(elements.governanceResultsDialogCounts, counts);
+    elements.governanceResultsDialog.showModal();
   } catch (error) {
     elements.governanceError.textContent =
       error instanceof Error ? error.message : "Governance Audit scan failed.";
@@ -762,54 +1885,875 @@ async function runGovernanceScan() {
     elements.governanceStatus.textContent = "Governance Audit did not complete.";
   } finally {
     elements.runGovernanceScan.disabled = false;
+    finishLoading();
   }
 }
 
 function renderGovernanceAudit(result) {
   elements.governanceWorkspaceRows.replaceChildren();
-  elements.governanceFindingRows.replaceChildren();
   elements.governanceAccessRows.replaceChildren();
+  elements.governanceConnectionRows.replaceChildren();
   elements.governanceArtifactRows.replaceChildren();
   elements.governanceHistoryRows.replaceChildren();
 
+  currentGovernanceRunId = result.runId || "";
+  currentGovernanceFindings = result.findings || [];
+  governanceFindingCheckFilter = "";
+  elements.exportGovernanceAudit.disabled = !currentGovernanceRunId;
+  const reportCount = result.workspaces.reduce((count, audit) => count + audit.reports.length, 0);
+  const dashboardCount = result.workspaces.reduce((count, audit) => count + (audit.dashboards || []).length, 0);
+  const semanticModelCount = result.workspaces.reduce((count, audit) => count + audit.semanticModels.length, 0);
+  const appCount = (result.apps || []).length;
+  const gatewayCount = (result.gateways || []).length;
+  let reportConnectionCount = 0;
+  elements.governanceResultSummary.textContent =
+    `${result.workspaces.length} workspaces · ${reportCount} reports · ${dashboardCount} dashboards · ${semanticModelCount} semantic models` +
+    (appCount || gatewayCount ? ` · ${appCount} apps · ${gatewayCount} gateways` : "");
+  const counts = getGovernanceFindingCounts(currentGovernanceFindings);
+  renderGovernanceResultCountCards(elements.governanceResultCounts, counts);
+  governanceFindingFilter = "all";
+  for (const filter of elements.governanceFindingFilters) {
+    const selected = filter.dataset.governanceFindingFilter === governanceFindingFilter;
+    filter.classList.toggle("is-active", selected);
+    filter.setAttribute("aria-pressed", String(selected));
+  }
+  renderGovernanceFindingList();
+
   for (const audit of result.workspaces) {
     const workspace = audit.workspace;
-    const admins = audit.users.filter(user => user.accessRight.toLocaleLowerCase() === "admin").length;
+    const accessCounts = new Map();
+    for (const user of audit.users || []) {
+      const role = user.accessRight || "Unknown";
+      accessCounts.set(role, (accessCounts.get(role) || 0) + 1);
+    }
+    const accessSummary = [...accessCounts.entries()]
+      .map(([role, count]) => `${role}: ${count}`)
+      .join(" · ") || "No principals returned";
     appendGovernanceRow(elements.governanceWorkspaceRows, [
       workspace.name,
+      workspace.isOnDedicatedCapacity ? "Dedicated" : "Shared",
       audit.reports.length,
+      (audit.dashboards || []).length,
       audit.semanticModels.length,
-      admins
+      accessSummary
     ]);
 
-    for (const user of audit.users) {
+    for (const user of audit.users || []) {
       appendGovernanceRow(elements.governanceAccessRows, [
         workspace.name,
         user.displayName || user.emailAddress || user.identifier,
+        user.emailAddress || user.identifier,
         user.principalType,
         user.accessRight
       ]);
     }
 
-    for (const artifact of [...audit.reports, ...audit.semanticModels]) {
+    for (const artifact of [...audit.reports, ...audit.semanticModels, ...(audit.dashboards || [])]) {
       appendGovernanceRow(elements.governanceArtifactRows, [
         workspace.name,
         artifact.type,
         artifact.name,
-        artifact.configuredBy || "Not returned by Power BI"
+        artifact.configuredBy || "Not returned by Power BI",
+        artifact.status || "—"
+      ]);
+    }
+
+    for (const item of audit.reportConnections || []) {
+      reportConnectionCount++;
+      appendGovernanceRow(elements.governanceConnectionRows, [
+        workspace.name,
+        item.reportName,
+        item.semanticModelName || "Not returned",
+        item.sourceType || "Not returned",
+        item.connectionDetails || "Details not returned",
+        renderGovernanceHealthStatus(item.status, item.statusDetail),
+        renderGovernanceHealthStatus(item.gatewayStatus, item.gatewayStatusDetail)
       ]);
     }
   }
 
-  for (const finding of result.findings) {
-    appendGovernanceRow(elements.governanceFindingRows, [
-      finding.severity,
-      finding.workspaceName,
-      `${finding.code} · ${finding.title}`,
-      finding.detail
+  if (reportConnectionCount === 0) {
+    appendGovernanceRow(elements.governanceConnectionRows, [
+      "No report connection details were collected for this run.",
+      "", "", "", "", "", ""
     ]);
   }
-  elements.governanceNoFindings.hidden = result.findings.length > 0;
+
+  for (const artifact of [...(result.apps || []), ...(result.gateways || [])]) {
+    appendGovernanceRow(elements.governanceArtifactRows, [
+      "Account-level",
+      artifact.type,
+      artifact.name,
+      artifact.configuredBy || "Not returned by Power BI",
+      artifact.status || "—"
+    ]);
+  }
+
+  elements.governanceNoFindings.hidden = currentGovernanceFindings.length > 0;
+}
+
+async function exportGovernanceAudit() {
+  if (!currentGovernanceRunId) {
+    return;
+  }
+
+  elements.exportGovernanceAudit.disabled = true;
+  try {
+    const response = await fetch(
+      `/api/governance-audit/runs/${encodeURIComponent(currentGovernanceRunId)}/export`,
+      { headers: { Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" } }
+    );
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Governance Audit workbook could not be exported."));
+    }
+
+    const workbook = await response.blob();
+    const downloadUrl = URL.createObjectURL(workbook);
+    const link = document.createElement("a");
+    link.href = downloadUrl;
+    const suggestedName = /filename="([^"]+)"/i.exec(response.headers.get("Content-Disposition") || "")?.[1];
+    link.download = suggestedName || `bi-sentinel-governance-audit-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+    elements.governanceStatus.textContent = "Excel workbook exported with findings, workspace access, artifacts, and connections.";
+  } catch (error) {
+    elements.governanceError.textContent = error instanceof Error
+      ? error.message
+      : "Governance Audit workbook could not be exported.";
+    elements.governanceError.hidden = false;
+  } finally {
+    elements.exportGovernanceAudit.disabled = !currentGovernanceRunId;
+  }
+}
+
+function getGovernanceFindingCounts(findings) {
+  const counts = {
+    total: findings.length,
+    FAIL: 0,
+    INSUFFICIENT_EVIDENCE: 0,
+    EXCEPTION_APPROVED: 0,
+    PASS: 0
+  };
+  for (const finding of findings) {
+    if (Object.hasOwn(counts, finding.status)) {
+      counts[finding.status] += 1;
+    }
+  }
+  return counts;
+}
+
+function renderGovernanceResultCountCards(target, counts) {
+  target.replaceChildren();
+  for (const [status, label, iconName] of [
+    ["total", "Findings", "list"],
+    ["FAIL", "Needs review", "warning"],
+    ["INSUFFICIENT_EVIDENCE", "Evidence gaps", "information"],
+    ["EXCEPTION_APPROVED", "Exceptions", "check"],
+    ["PASS", "Passed", "check"]
+  ]) {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = `governance-count-card governance-count-${status.toLocaleLowerCase()}`;
+    card.dataset.governanceStatusLink = status === "total" ? "all" : status;
+    card.setAttribute("aria-label", `Show ${label.toLocaleLowerCase()} audit results.`);
+    const icon = document.createElement("span");
+    icon.className = "governance-count-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.append(createGovernanceIcon(iconName));
+    const count = document.createElement("strong");
+    count.textContent = String(counts[status] || 0);
+    const text = document.createElement("span");
+    text.textContent = label;
+    card.append(icon, count, text);
+    target.append(card);
+  }
+
+  const optimizationChecks = [
+    ["OPT-001", "Potentially unused tables", "Model tables with no detected references in DAX or scanned report visuals."],
+    ["OPT-002", "Potentially unused columns", "Columns with no detected references in DAX or scanned report visuals."],
+    ["OPT-003", "Potentially unused measures", "Measures not referenced by other measures or scanned report visuals."]
+  ];
+  for (const [checkId, label, description] of optimizationChecks) {
+    const checkFindings = currentGovernanceFindings.filter(finding => finding.checkId === checkId);
+    if (checkFindings.length === 0) {
+      continue;
+    }
+
+    const candidateCount = checkFindings.filter(finding =>
+      finding.status === "FAIL" || finding.status === "EXCEPTION_APPROVED").length;
+    const evaluated = checkFindings.some(finding =>
+      finding.status === "FAIL" || finding.status === "PASS");
+    const partialEvidence = checkFindings.some(finding => finding.status === "INSUFFICIENT_EVIDENCE");
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "governance-count-card governance-count-optimization";
+    card.dataset.governanceCheckLink = checkId;
+    card.setAttribute(
+      "aria-label",
+      `${evaluated ? candidateCount : "No count"} ${label.toLocaleLowerCase()}. View matching findings.`
+    );
+    const icon = document.createElement("span");
+    icon.className = "governance-count-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.append(createGovernanceIcon("information"));
+    const count = document.createElement("strong");
+    count.textContent = evaluated ? String(candidateCount) : "—";
+    const text = document.createElement("span");
+    const coverageNote = evaluated
+      ? partialEvidence ? " · partial evidence" : ""
+      : " · evidence gap";
+    text.textContent = `${label}${coverageNote}`;
+    const shortDescription = document.createElement("span");
+    shortDescription.className = "governance-count-card-description";
+    shortDescription.textContent = description;
+    card.append(icon, count, text, shortDescription);
+    target.append(card);
+  }
+}
+
+function handleGovernanceResultCardClick(event) {
+  const checkCard = event.target.closest("[data-governance-check-link]");
+  const statusCard = event.target.closest("[data-governance-status-link]");
+  if ((!checkCard && !statusCard) ||
+      (checkCard && !currentGovernanceFindings.some(finding =>
+        finding.checkId === checkCard.dataset.governanceCheckLink))) {
+    return;
+  }
+
+  if (elements.governanceResultsDialog.open) {
+    elements.governanceResultsDialog.close();
+  }
+  elements.governanceResults.hidden = false;
+  governanceFindingCheckFilter = checkCard?.dataset.governanceCheckLink || "";
+  governanceFindingFilter = statusCard?.dataset.governanceStatusLink || "all";
+  for (const filter of elements.governanceFindingFilters) {
+    const selected = filter.dataset.governanceFindingFilter === governanceFindingFilter;
+    filter.classList.toggle("is-active", selected);
+    filter.setAttribute("aria-pressed", String(selected));
+  }
+  renderGovernanceFindingList();
+  window.requestAnimationFrame(() => {
+    const group = governanceFindingCheckFilter
+      ? document.querySelector(`#governance-finding-${CSS.escape(governanceFindingCheckFilter)}`)
+      : elements.governanceFindingList.querySelector(".governance-finding-group");
+    if (group) {
+      if (governanceFindingCheckFilter) {
+        group.open = true;
+      }
+      group.scrollIntoView({ behavior: "smooth", block: "start" });
+      group.querySelector("summary")?.focus({ preventScroll: true });
+    } else {
+      elements.governanceFindingList.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  });
+}
+
+function renderGovernanceFindingList() {
+  elements.governanceFindingList.replaceChildren();
+  const counts = getGovernanceFindingCounts(currentGovernanceFindings);
+  for (const [status, count] of Object.entries({
+    all: counts.total,
+    FAIL: counts.FAIL,
+    INSUFFICIENT_EVIDENCE: counts.INSUFFICIENT_EVIDENCE,
+    EXCEPTION_APPROVED: counts.EXCEPTION_APPROVED,
+    PASS: counts.PASS
+  })) {
+    const countElement = document.querySelector(`[data-governance-finding-count="${status}"]`);
+    if (countElement) {
+      countElement.textContent = String(count);
+    }
+  }
+
+  const checkScopedFindings = governanceFindingCheckFilter
+    ? currentGovernanceFindings.filter(finding => finding.checkId === governanceFindingCheckFilter)
+    : currentGovernanceFindings;
+  const visibleFindings = governanceFindingFilter === "all"
+    ? checkScopedFindings
+    : checkScopedFindings.filter(finding => finding.status === governanceFindingFilter);
+  elements.governanceFindingScope.hidden = !governanceFindingCheckFilter;
+  if (governanceFindingCheckFilter) {
+    const label = {
+      "OPT-001": "Potentially unused tables",
+      "OPT-002": "Potentially unused columns",
+      "OPT-003": "Potentially unused measures"
+    }[governanceFindingCheckFilter] || governanceFindingCheckFilter;
+    elements.governanceFindingScopeLabel.textContent = `Showing ${label} findings`;
+  }
+  if (visibleFindings.length === 0) {
+    elements.governanceNoFindings.hidden = false;
+    elements.governanceNoFindings.textContent = currentGovernanceFindings.length === 0
+      ? "No check results were returned for this scan."
+      : "There are no findings in this category.";
+    return;
+  }
+
+  elements.governanceNoFindings.hidden = true;
+  const groups = new Map();
+  for (const finding of visibleFindings) {
+    const key = finding.checkId || finding.checkName || "Governance finding";
+    if (!groups.has(key)) {
+      groups.set(key, []);
+    }
+    groups.get(key).push(finding);
+  }
+
+  for (const [checkId, findings] of groups) {
+    const group = document.createElement("details");
+    group.className = "governance-finding-group";
+    group.id = `governance-finding-${checkId}`;
+    group.open = findings.length === 1;
+    const summary = document.createElement("summary");
+    const name = document.createElement("span");
+    name.textContent = `${checkId} · ${findings[0].checkName || "Governance check"}`;
+    const count = document.createElement("span");
+    count.className = "governance-finding-group-count";
+    if (checkId.startsWith("OPT-")) {
+      const candidates = findings.filter(finding =>
+        finding.status === "FAIL" || finding.status === "EXCEPTION_APPROVED").length;
+      const gaps = findings.filter(finding => finding.status === "INSUFFICIENT_EVIDENCE").length;
+      count.textContent = `${candidates} candidate${candidates === 1 ? "" : "s"}${gaps ? ` · ${gaps} evidence gap${gaps === 1 ? "" : "s"}` : ""}`;
+    } else {
+      count.textContent = `${findings.length} result${findings.length === 1 ? "" : "s"}`;
+    }
+    summary.append(name, count);
+    group.append(summary);
+
+    const cards = document.createElement("div");
+    cards.className = "governance-finding-cards";
+    if (checkId.startsWith("OPT-")) {
+      const scopedFindings = new Map();
+      for (const finding of findings) {
+        const key = `${finding.workspaceName || ""}|${finding.status || ""}`;
+        if (!scopedFindings.has(key)) {
+          scopedFindings.set(key, []);
+        }
+        scopedFindings.get(key).push(finding);
+      }
+      for (const scoped of scopedFindings.values()) {
+        cards.append(renderOptimizationFindingGroup(checkId, scoped));
+      }
+    } else {
+      for (const finding of findings) {
+        cards.append(renderGovernanceFinding(finding));
+      }
+    }
+    group.append(cards);
+    elements.governanceFindingList.append(group);
+  }
+}
+
+function renderOptimizationFindingGroup(checkId, findings) {
+  const card = document.createElement("article");
+  card.className = "governance-finding-card";
+  const first = findings[0];
+  const candidates = findings.filter(finding =>
+    finding.status === "FAIL" || finding.status === "EXCEPTION_APPROVED");
+  const category = checkId === "OPT-001"
+    ? "table"
+    : checkId === "OPT-002" ? "column" : "measure";
+  const header = document.createElement("div");
+  header.className = "governance-finding-card-header";
+  const status = document.createElement("span");
+  status.className = `governance-finding-status governance-status-${(first.status || "").toLocaleLowerCase()}`;
+  status.textContent = first.status === "FAIL"
+    ? "Candidate findings"
+    : first.status === "EXCEPTION_APPROVED"
+      ? "Approved exception"
+    : first.status === "PASS" ? "No candidates found" : "Insufficient evidence";
+  header.append(status);
+  const title = document.createElement("h3");
+  title.textContent = candidates.length > 0
+    ? `${candidates.length} potentially unused ${category}${candidates.length === 1 ? "" : "s"}`
+    : first.status === "PASS"
+      ? `No potentially unused ${category}s detected`
+      : `${findings.length} ${category} check${findings.length === 1 ? "" : "s"} need evidence`;
+  const location = document.createElement("p");
+  location.className = "governance-finding-location";
+  location.textContent = first.workspaceName || "Workspace";
+  card.append(header, title, location);
+
+  if (candidates.length > 0) {
+    const names = document.createElement("ul");
+    names.className = "governance-optimization-object-list";
+    if (checkId === "OPT-002") {
+      const columnsByTable = new Map();
+      for (const finding of candidates) {
+        const objectName = finding.artifactName || finding.title;
+        const match = /^(.+)\[([^\]]+)\]$/.exec(objectName || "");
+        const tableName = match ? match[1] : "Table not returned";
+        const columnName = match ? match[2] : objectName || "Column name not returned";
+        if (!columnsByTable.has(tableName)) {
+          columnsByTable.set(tableName, []);
+        }
+        columnsByTable.get(tableName).push(columnName);
+      }
+      for (const [tableName, columns] of columnsByTable) {
+        const item = document.createElement("li");
+        const tableLabel = document.createElement("strong");
+        tableLabel.textContent = `Table: ${tableName}`;
+        const columnLabel = document.createElement("span");
+        columnLabel.textContent = ` · Column${columns.length === 1 ? "" : "s"}: ${columns.join(", ")}`;
+        item.append(tableLabel, columnLabel);
+        if (applicationSession?.isAdmin === true) {
+          for (const finding of candidates.filter(candidate => {
+            const name = candidate.artifactName || "";
+            return name.startsWith(`${tableName}[`);
+          })) {
+            appendOptimizationExceptionControl(item, finding);
+          }
+        }
+        names.append(item);
+      }
+    } else {
+      for (const finding of candidates) {
+        const item = document.createElement("li");
+        const objectName = finding.artifactName || finding.title || "Object name not returned";
+        const objectLabel = document.createElement("strong");
+        if (checkId === "OPT-003") {
+          const match = /^(.+)\[([^\]]+)\]$/.exec(objectName);
+          objectLabel.textContent = match
+            ? `Measure: ${match[2]} · Table: ${match[1]}`
+            : `Measure: ${objectName}`;
+        } else {
+          objectLabel.textContent = `Table: ${objectName}`;
+        }
+        item.append(objectLabel);
+        if (applicationSession?.isAdmin === true) {
+          appendOptimizationExceptionControl(item, finding);
+        }
+        names.append(item);
+      }
+    }
+    card.append(names);
+    const explanation = document.createElement("p");
+    explanation.className = "governance-finding-short-detail";
+    explanation.textContent = first.detail?.split(/\r?\n/).find(line => line.trim()) ||
+      `No usage reference was detected for these ${category} candidates in the scanned evidence.`;
+    card.append(explanation);
+  } else {
+    const explanation = document.createElement("p");
+    explanation.className = "governance-finding-short-detail";
+    explanation.textContent = first.detail?.split(/\r?\n/).find(line => line.trim()) ||
+      "The check did not return an explanation.";
+    card.append(explanation);
+  }
+
+  const evidence = document.createElement("details");
+  evidence.className = "governance-finding-details";
+  const summary = document.createElement("summary");
+  summary.textContent = "Evidence and evaluation notes";
+  evidence.append(summary);
+  const content = document.createElement("div");
+  content.className = "governance-finding-detail-content";
+  for (const [label, value] of [
+    ["Evidence source", first.evidenceSource || "Not returned"],
+    ["Evidence timestamp", first.evidenceTimestamp ? new Date(first.evidenceTimestamp).toLocaleString() : "Unavailable"],
+    ["Evaluation", first.evaluationLogic || "Not returned"],
+    ["Rule version", `${first.checkId || checkId} · v${first.checkVersion || "—"}`]
+  ]) {
+    const item = document.createElement("p");
+    const name = document.createElement("strong");
+    name.textContent = `${label}: `;
+    item.append(name, document.createTextNode(value));
+    content.append(item);
+  }
+  const notes = [...new Set(candidates.flatMap(finding =>
+    String(finding.detail || "").split(/\r?\n/).filter(line => line.trimStart().startsWith("- "))))];
+  if (notes.length > 0) {
+    const list = document.createElement("ul");
+    list.className = "governance-finding-bullets";
+    for (const note of notes) {
+      const item = document.createElement("li");
+      item.textContent = note.trimStart().slice(2);
+      list.append(item);
+    }
+    content.append(list);
+  }
+  const rawEvidence = document.createElement("details");
+  const rawSummary = document.createElement("summary");
+  rawSummary.textContent = "Evidence captured for each object";
+  const raw = document.createElement("pre");
+  raw.textContent = JSON.stringify(findings.map(finding => ({
+    object: finding.artifactName || finding.title,
+    status: finding.status,
+    evidence: finding.evidence
+  })), null, 2);
+  rawEvidence.append(rawSummary, raw);
+  content.append(rawEvidence);
+  evidence.append(content);
+  card.append(evidence);
+  return card;
+}
+
+function appendOptimizationExceptionControl(target, finding) {
+  if (finding.exceptionRecord) {
+    target.append(renderGovernanceExceptionRecord(finding.exceptionRecord, finding));
+  } else {
+    target.append(document.createTextNode(" "));
+    target.append(createGovernanceExceptionButton(finding));
+  }
+}
+
+function renderGovernanceFinding(finding) {
+  const card = document.createElement("article");
+  card.className = "governance-finding-card";
+  const header = document.createElement("div");
+  header.className = "governance-finding-card-header";
+  const status = document.createElement("span");
+  status.className = `governance-finding-status governance-status-${(finding.status || "").toLocaleLowerCase()}`;
+  status.textContent = finding.status === "FAIL"
+    ? "Needs review"
+    : finding.status === "INSUFFICIENT_EVIDENCE"
+      ? "Insufficient evidence"
+      : finding.status === "EXCEPTION_APPROVED"
+        ? "Approved exception"
+        : finding.status === "PASS" ? "Passed" : finding.status || "Status unavailable";
+  const severity = document.createElement("span");
+  severity.className = "governance-finding-severity";
+  severity.textContent = `${finding.severity || "Severity unavailable"} severity`;
+  header.append(status, severity);
+
+  const title = document.createElement("h3");
+  title.textContent = finding.title || finding.checkName || finding.checkId || "Governance finding";
+  const location = document.createElement("p");
+  location.className = "governance-finding-location";
+  location.textContent = [
+    finding.artifactType,
+    finding.artifactName,
+    finding.workspaceName
+  ].filter(Boolean).join(" · ") || "Workspace";
+  const detailLines = String(finding.detail || "").split(/\r?\n/).filter(line => line.trim());
+  const detail = document.createElement("p");
+  detail.className = "governance-finding-short-detail";
+  detail.textContent = detailLines[0] || "No additional explanation was returned.";
+  card.append(header, title, location, detail);
+
+  const extraLines = detailLines.slice(1);
+  const bulletLines = extraLines.filter(line => line.trimStart().startsWith("- "));
+  if (bulletLines.length > 0) {
+    const list = document.createElement("ul");
+    list.className = "governance-finding-bullets";
+    for (const line of bulletLines) {
+      const item = document.createElement("li");
+      item.textContent = line.trimStart().slice(2);
+      list.append(item);
+    }
+    card.append(list);
+  }
+
+  const evidence = document.createElement("details");
+  evidence.className = "governance-finding-details";
+  const evidenceSummary = document.createElement("summary");
+  evidenceSummary.textContent = "Evidence and rule details";
+  const evidenceContent = document.createElement("div");
+  evidenceContent.className = "governance-finding-detail-content";
+  for (const [label, value] of [
+    ["Check version", `${finding.checkId || "—"} · v${finding.checkVersion || "—"}`],
+    ["Evidence source", finding.evidenceSource || "Not returned"],
+    ["Recorded", finding.evidenceTimestamp
+      ? new Date(finding.evidenceTimestamp).toLocaleString()
+      : "Timestamp unavailable"],
+    ["Expected", finding.expectedValue || "Not specified"],
+    ["Observed", finding.actualValue || "Not returned"],
+    ["Rule", finding.evaluationLogic || "Not returned"],
+    ["Exception guidance", finding.exceptionRules || "Not returned"]
+  ]) {
+    const item = document.createElement("p");
+    const labelElement = document.createElement("strong");
+    labelElement.textContent = `${label}: `;
+    item.append(labelElement, document.createTextNode(value));
+    evidenceContent.append(item);
+  }
+  const evidenceValues = document.createElement("details");
+  const evidenceValuesSummary = document.createElement("summary");
+  evidenceValuesSummary.textContent = "Raw evidence values";
+  const evidenceValuesPre = document.createElement("pre");
+  evidenceValuesPre.textContent = JSON.stringify(finding.evidence, null, 2);
+  evidenceValues.append(evidenceValuesSummary, evidenceValuesPre);
+  evidenceContent.append(evidenceValues);
+  evidence.append(evidenceSummary, evidenceContent);
+  card.append(evidence);
+  if (finding.exceptionRecord) {
+    card.append(renderGovernanceExceptionRecord(finding.exceptionRecord, finding));
+  } else if (finding.status === "FAIL" && applicationSession?.isAdmin === true) {
+    const actions = document.createElement("div");
+    actions.className = "governance-exception-actions";
+    actions.append(createGovernanceExceptionButton(finding));
+    card.append(actions);
+  }
+  return card;
+}
+
+function createGovernanceExceptionButton(finding, action = "approve") {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "button button-secondary governance-exception-button";
+  button.textContent = action === "revoke" ? "Revoke exception" : "Approve exception";
+  button.dataset.governanceExceptionAction = action;
+  button.dataset.findingIndex = String(currentGovernanceFindings.indexOf(finding));
+  if (finding.exceptionRecord?.exceptionId) {
+    button.dataset.exceptionId = finding.exceptionRecord.exceptionId;
+  }
+  return button;
+}
+
+function renderGovernanceExceptionRecord(exception, finding) {
+  const container = document.createElement("section");
+  container.className = `governance-exception-record governance-exception-${String(exception.status || "").toLocaleLowerCase()}`;
+  const heading = document.createElement("strong");
+  heading.textContent = exception.status === "Approved"
+    ? `Approved exception · expires ${new Date(exception.expiresUtc).toLocaleDateString()}`
+    : `${exception.status} exception`;
+  const summary = document.createElement("p");
+  summary.textContent =
+    `Owner: ${exception.owner} · Approved by ${exception.approvedBy} on ${new Date(exception.approvedUtc).toLocaleString()}. ` +
+    `Reason: ${exception.reason}`;
+  container.append(heading, summary);
+
+  if (finding.originalStatus) {
+    const original = document.createElement("p");
+    original.textContent = `Underlying finding status: ${finding.originalStatus}. The exception changes the determination only until expiry or revocation; evidence is unchanged.`;
+    container.append(original);
+  }
+
+  if (Array.isArray(exception.auditTrail) && exception.auditTrail.length > 0) {
+    const trail = document.createElement("details");
+    const trailSummary = document.createElement("summary");
+    trailSummary.textContent = `Audit trail (${exception.auditTrail.length} event${exception.auditTrail.length === 1 ? "" : "s"})`;
+    const events = document.createElement("ul");
+    for (const event of exception.auditTrail) {
+      const item = document.createElement("li");
+      item.textContent = `${event.eventType} · ${new Date(event.eventUtc).toLocaleString()} · ${event.actor}: ${event.notes}`;
+      events.append(item);
+    }
+    trail.append(trailSummary, events);
+    container.append(trail);
+  }
+
+  if (exception.status === "Approved" && applicationSession?.isAdmin === true) {
+    container.append(createGovernanceExceptionButton(finding, "revoke"));
+  } else if (exception.status !== "Approved" &&
+      finding.status === "FAIL" &&
+      applicationSession?.isAdmin === true) {
+    container.append(createGovernanceExceptionButton(finding));
+  }
+  return container;
+}
+
+function handleGovernanceExceptionAction(event) {
+  const button = event.target.closest("[data-governance-exception-action]");
+  if (!button || applicationSession?.isAdmin !== true) {
+    return;
+  }
+
+  const findingIndex = Number(button.dataset.findingIndex);
+  const finding = currentGovernanceFindings[findingIndex];
+  if (!finding || findingIndex < 0) {
+    return;
+  }
+
+  const action = button.dataset.governanceExceptionAction;
+  governanceExceptionTarget = {
+    action,
+    finding,
+    exceptionId: button.dataset.exceptionId || finding.exceptionRecord?.exceptionId || ""
+  };
+  const isRevoking = action === "revoke";
+  elements.governanceExceptionTitle.textContent = isRevoking
+    ? "Revoke this exception"
+    : "Approve a time-limited exception";
+  elements.governanceExceptionTarget.textContent =
+    `${finding.checkId} · ${finding.artifactName || finding.title} · ${finding.workspaceName}`;
+  elements.governanceExceptionApprovalFields.hidden = isRevoking;
+  elements.governanceExceptionOwner.required = !isRevoking;
+  elements.governanceExceptionExpiry.required = !isRevoking;
+  elements.governanceExceptionReasonLabel.textContent = isRevoking
+    ? "Revocation reason"
+    : "Approval justification";
+  elements.submitGovernanceException.textContent = isRevoking ? "Revoke exception" : "Approve exception";
+  elements.governanceExceptionError.hidden = true;
+  elements.governanceExceptionReason.value = "";
+  if (!isRevoking) {
+    const expiry = new Date();
+    expiry.setDate(expiry.getDate() + 30);
+    const expiryLimit = new Date();
+    expiryLimit.setFullYear(expiryLimit.getFullYear() + 1);
+    expiryLimit.setDate(expiryLimit.getDate() - 1);
+    elements.governanceExceptionExpiry.min = formatLocalDate(new Date());
+    elements.governanceExceptionExpiry.max = formatLocalDate(expiryLimit);
+    elements.governanceExceptionExpiry.value = formatLocalDate(expiry);
+    elements.governanceExceptionOwner.value = "";
+  }
+  elements.governanceExceptionDialog.showModal();
+}
+
+function formatLocalDate(date) {
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+async function submitGovernanceException(event) {
+  event.preventDefault();
+  if (!governanceExceptionTarget || applicationSession?.isAdmin !== true) {
+    return;
+  }
+
+  const { action, finding, exceptionId } = governanceExceptionTarget;
+  if (!currentGovernanceRunId) {
+    elements.governanceExceptionError.textContent =
+      "Save or reopen the audit run before managing an exception.";
+    elements.governanceExceptionError.hidden = false;
+    return;
+  }
+
+  const isRevoking = action === "revoke";
+  const endpoint = isRevoking
+    ? `/api/governance-audit/exceptions/${encodeURIComponent(exceptionId)}/revoke`
+    : "/api/governance-audit/exceptions";
+  const body = isRevoking
+    ? { reason: elements.governanceExceptionReason.value.trim() }
+    : {
+        runId: currentGovernanceRunId,
+        workspaceId: finding.workspaceId,
+        checkId: finding.checkId,
+        artifactId: finding.artifactId || null,
+        artifactType: finding.artifactType || null,
+        artifactName: finding.artifactName || finding.title,
+        owner: elements.governanceExceptionOwner.value.trim(),
+        reason: elements.governanceExceptionReason.value.trim(),
+        expiresUtc: new Date(`${elements.governanceExceptionExpiry.value}T23:59:59`).toISOString()
+      };
+  elements.submitGovernanceException.disabled = true;
+  elements.governanceExceptionError.hidden = true;
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(body)
+    });
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Governance exception could not be saved."));
+    }
+
+    elements.governanceExceptionDialog.close();
+    await loadGovernanceAuditRun(currentGovernanceRunId);
+  } catch (error) {
+    elements.governanceExceptionError.textContent = error instanceof Error
+      ? error.message
+      : "Governance exception could not be saved.";
+    elements.governanceExceptionError.hidden = false;
+  } finally {
+    elements.submitGovernanceException.disabled = false;
+  }
+}
+
+async function loadGovernanceCheckCatalog() {
+  if (governanceCheckCatalogLoaded) {
+    return;
+  }
+
+  elements.governanceCheckSelection.replaceChildren();
+  try {
+    const response = await fetch("/api/governance-audit/checks", {
+      headers: { Accept: "application/json" }
+    });
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Governance checks could not be loaded."));
+    }
+
+    const checks = await response.json();
+    for (const check of checks) {
+      const option = document.createElement("div");
+      option.className = "governance-check-option";
+      const label = document.createElement("label");
+      label.className = "governance-check-label";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = true;
+      checkbox.dataset.governanceCheck = check.checkId;
+      const title = document.createElement("span");
+      title.className = "governance-check-title";
+      title.textContent = `${check.checkId} · ${check.name}`;
+      const severity = document.createElement("span");
+      severity.className = "governance-check-severity";
+      severity.textContent = check.severity;
+      label.append(checkbox, title, severity);
+
+      const info = document.createElement("details");
+      info.className = "governance-check-info";
+      const infoSummary = document.createElement("summary");
+      infoSummary.setAttribute("aria-label", `More information about ${check.name}`);
+      infoSummary.title = `More information about ${check.name}`;
+      infoSummary.append(createGovernanceIcon("information"));
+      const infoPanel = document.createElement("div");
+      infoPanel.className = "governance-check-info-panel";
+      for (const [heading, value] of [
+        ["Purpose", check.description],
+        ["Version and owner", `v${check.version} · ${check.owner}`],
+        ["How it is evaluated", check.evaluationLogic],
+        ["Evidence source", check.evidenceSource],
+        ["Expected result", check.expectedResult],
+        ["Exception guidance", check.exceptionRules]
+      ]) {
+        const section = document.createElement("section");
+        const sectionHeading = document.createElement("strong");
+        sectionHeading.textContent = heading;
+        const sectionText = document.createElement("p");
+        sectionText.textContent = value || "Not specified.";
+        section.append(sectionHeading, sectionText);
+        infoPanel.append(section);
+      }
+      info.append(infoSummary, infoPanel);
+      option.append(label, info);
+      elements.governanceCheckSelection.append(option);
+    }
+    governanceCheckCatalogLoaded = true;
+  } catch (error) {
+    elements.governanceCheckSelection.textContent =
+      error instanceof Error ? error.message : "Governance checks could not be loaded.";
+  }
+}
+
+function createGovernanceIcon(name) {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const shape = document.createElementNS("http://www.w3.org/2000/svg", name === "warning" ? "path" : name === "list" ? "rect" : "circle");
+  if (name === "warning") {
+    shape.setAttribute("d", "m12 3 9 17H3l9-17Z");
+  } else if (name === "list") {
+    shape.setAttribute("x", "4");
+    shape.setAttribute("y", "4");
+    shape.setAttribute("width", "16");
+    shape.setAttribute("height", "16");
+    shape.setAttribute("rx", "2");
+  } else {
+    shape.setAttribute("cx", "12");
+    shape.setAttribute("cy", "12");
+    shape.setAttribute("r", "9");
+  }
+  svg.append(shape);
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  if (name === "check") {
+    path.setAttribute("d", "m8 12 2.5 2.5L16 9");
+    svg.append(path);
+  } else if (name === "information") {
+    path.setAttribute("d", "M12 11v5m0-8h.01");
+    svg.append(path);
+  } else if (name === "warning") {
+    path.setAttribute("d", "M12 9v4m0 3h.01");
+    svg.append(path);
+  } else if (name === "list") {
+    path.setAttribute("d", "M8 9h8M8 13h8M8 17h5");
+    svg.append(path);
+  }
+  return svg;
 }
 
 async function loadGovernanceAuditHistory() {
@@ -829,7 +2773,10 @@ async function loadGovernanceAuditHistory() {
         run.scannedBy,
         run.workspaceCount,
         run.reportCount,
+        run.dashboardCount,
         run.semanticModelCount,
+        run.appCount,
+        run.gatewayCount,
         run.findingCount
       ]);
       const actionCell = document.createElement("td");
@@ -877,11 +2824,34 @@ function appendGovernanceRow(target, values) {
   const row = document.createElement("tr");
   for (const value of values) {
     const cell = document.createElement("td");
-    cell.textContent = String(value ?? "—");
+    if (value instanceof Node) {
+      cell.append(value);
+    } else {
+      cell.textContent = String(value ?? "—");
+    }
     row.append(cell);
   }
   target.append(row);
   return row;
+}
+
+function renderGovernanceHealthStatus(status, detail) {
+  const value = status || "Unknown";
+  const container = document.createElement("span");
+  container.className = "governance-health-status";
+  const badge = document.createElement("strong");
+  badge.className = `governance-health-badge governance-health-${value
+    .toLocaleLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")}`;
+  badge.textContent = value;
+  container.append(badge);
+  if (detail) {
+    const description = document.createElement("span");
+    description.textContent = detail;
+    container.append(description);
+  }
+  return container;
 }
 
 function renderReviewConfiguration(result) {
@@ -1049,14 +3019,47 @@ async function readApiError(response, fallback) {
     window.location.reload();
     return "Your sign-in expired. Re-authenticating now.";
   }
-  if (response.status === 403) {
-    return "Your account is signed in but is not authorized for this action. Contact a BI Sentinel administrator.";
+  const body = await response.text();
+  let problem = null;
+  if (body) {
+    try {
+      problem = JSON.parse(body);
+    } catch {
+      return body.trim() || fallback;
+    }
   }
-  const problem = await response.json().catch(() => null);
   if (problem?.errors) {
     return Object.values(problem.errors).flat().join(" ");
   }
-  return problem?.detail || problem?.title || fallback;
+  if (problem?.detail || problem?.title) {
+    return [problem.title, problem.detail]
+      .filter(Boolean)
+      .filter((value, index, values) => values.indexOf(value) === index)
+      .join(" ");
+  }
+  if (response.status === 403) {
+    return "Your account is signed in but is not authorized for this action. Contact a BI Sentinel administrator.";
+  }
+  return fallback;
+}
+
+async function readJsonResponse(response, operation) {
+  const body = await response.text();
+  if (!body.trim()) {
+    throw new Error(
+      `${operation} returned HTTP ${response.status} with an empty response. ` +
+      "The server may have completed the operation without returning its result; check the API logs before retrying."
+    );
+  }
+
+  try {
+    return JSON.parse(body);
+  } catch {
+    const contentType = response.headers.get("content-type") || "unknown content type";
+    throw new Error(
+      `${operation} returned an invalid JSON response (HTTP ${response.status}, ${contentType}).`
+    );
+  }
 }
 
 function showConfigurationError(message) {
@@ -1116,6 +3119,7 @@ async function runReview(url, requestOptions, triggerButton, sourceName) {
   triggerButton.disabled = true;
   elements.error.hidden = true;
   elements.status.textContent = "Reviewing the Power BI artifact and saving the result to SQL…";
+  const finishLoading = beginGlobalLoading("Reviewing Power BI content…");
 
   try {
     const response = await fetch(url, {
@@ -1131,7 +3135,15 @@ async function runReview(url, requestOptions, triggerButton, sourceName) {
         : detail);
     }
 
-    await displaySavedRuns([await response.json()], sourceName);
+    const savedRun = await readJsonResponse(response, "Review upload");
+    if (!savedRun || typeof savedRun !== "object" ||
+        !savedRun.review || !Array.isArray(savedRun.findings)) {
+      throw new Error(
+        "Review upload returned JSON, but it did not contain the saved review and findings. " +
+        "Check that the server and browser are running the same BI Sentinel version."
+      );
+    }
+    await displaySavedRuns([savedRun], sourceName);
   } catch (error) {
     showReviewError(
       error instanceof Error ? error.message : "The review could not be completed.",
@@ -1142,6 +3154,7 @@ async function runReview(url, requestOptions, triggerButton, sourceName) {
       : "Review did not complete.";
   } finally {
     triggerButton.disabled = false;
+    finishLoading();
   }
 }
 
@@ -1158,10 +3171,11 @@ async function displaySavedRuns(savedRuns, sourceName) {
       ...finding,
       projectName: run.review.projectName
     })));
-  for (const run of savedRuns) {
-    await loadSavedFeedback(run.reviewRunId, run.findings || run.review.findings || []);
-  }
-
+  activeFindingCategory = "all";
+  reviewerSubmissionMode = false;
+  currentSubmission = null;
+  submissionDrafts = {};
+  reviewerResponseDrafts = {};
   const summary = savedRuns.reduce((total, run) => ({
     projectName: projectNames.length === 1 ? projectNames[0] : `${projectNames.length} projects`,
     tablesChecked: total.tablesChecked + run.review.tablesChecked,
@@ -1180,6 +3194,21 @@ async function displaySavedRuns(savedRuns, sourceName) {
   elements.overview.hidden = false;
   elements.status.textContent =
     `Review completed successfully for ${savedRuns.length} ${savedRuns.length === 1 ? "project" : "projects"}.`;
+  elements.reviewResults.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  if (!isReviewReviewer()) {
+    try {
+      await loadMySubmission(currentReviewRunId);
+      renderFindings();
+    } catch (error) {
+      showError(error instanceof Error
+        ? `Review completed and saved, but your submission status could not be loaded: ${error.message}`
+        : "Review completed and saved, but your submission status could not be loaded.");
+    }
+  } else {
+    currentSubmission = null;
+  }
+
   await loadDashboard();
   const latestReviewedUtc = savedRuns
     .map(run => run.reviewedUtc)
@@ -1276,7 +3305,7 @@ async function loadSelectedReview() {
   await loadReviewById(reviewRunId);
 }
 
-async function loadReviewById(reviewRunId) {
+async function loadReviewById(reviewRunId, submission = null) {
   elements.status.textContent = "Loading saved review…";
   elements.error.hidden = true;
   try {
@@ -1292,7 +3321,20 @@ async function loadReviewById(reviewRunId) {
     currentReviewRunId = entry.summary.reviewRunId;
     currentProject = entry.summary.projectName;
     currentFindings = entry.findings || [];
-    await loadSavedFeedback(currentReviewRunId);
+    activeFindingCategory = "all";
+    if (submission) {
+      currentSubmission = submission;
+      reviewerSubmissionMode = true;
+      submissionDrafts = {};
+      reviewerResponseDrafts = {};
+    } else {
+      reviewerSubmissionMode = false;
+      if (!isReviewReviewer()) {
+        await loadMySubmission(currentReviewRunId);
+      } else {
+        currentSubmission = null;
+      }
+    }
     renderSummary({ ...entry.summary, findings: currentFindings });
     renderFindings();
     elements.overview.hidden = false;
@@ -1305,11 +3347,134 @@ async function loadReviewById(reviewRunId) {
   }
 }
 
+function isReviewReviewer() {
+  return applicationSession?.isAdmin === true ||
+    applicationSession?.isManager === true ||
+    applicationSession?.isLead === true;
+}
+
+async function loadMySubmission(reviewRunId) {
+  currentSubmission = null;
+  submissionDrafts = {};
+  reviewerResponseDrafts = {};
+  const response = await fetch(
+    `/api/reviews/history/${encodeURIComponent(reviewRunId)}/submission`,
+    { headers: { Accept: "application/json" } }
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response, "Your saved review submission could not be loaded."));
+  }
+
+  currentSubmission = await readJsonResponse(response, "Submission status");
+}
+
+async function submitCurrentReviewWorkflow() {
+  if (!currentReviewRunId || currentFindings.length === 0) {
+    return;
+  }
+
+  const button = elements.submitReviewWorkflow;
+  button.disabled = true;
+  elements.error.hidden = true;
+  try {
+    if (reviewerSubmissionMode && currentSubmission) {
+      const findings = currentSubmission.findings.map(finding => {
+        const draft = reviewerResponseDrafts[finding.reviewFindingId] || {};
+        return {
+          reviewFindingId: finding.reviewFindingId,
+          disposition: draft.disposition || finding.reviewerDisposition || "",
+          response: draft.response ?? finding.reviewerResponse ?? null
+        };
+      });
+      if (findings.some(finding => !finding.disposition)) {
+        throw new Error("Choose a reviewer decision for every finding before submitting the review.");
+      }
+
+      const response = await fetch(
+        `/api/reviews/submissions/${encodeURIComponent(currentSubmission.submissionId)}/complete`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ findings })
+        }
+      );
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "Reviewer response could not be submitted."));
+      }
+      currentSubmission = await response.json();
+      elements.status.textContent = "Reviewer decisions submitted. The submitter can now read them.";
+    } else {
+      const findings = currentFindings.map(finding => ({
+        reviewFindingId: finding.reviewFindingId,
+        justification: submissionDrafts[finding.reviewFindingId] || null
+      }));
+      const response = await fetch(
+        `/api/reviews/history/${encodeURIComponent(currentReviewRunId)}/submission`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json" },
+          body: JSON.stringify({ findings })
+        }
+      );
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "Your review could not be submitted."));
+      }
+      currentSubmission = await response.json();
+      elements.status.textContent = "Review submitted. Your justifications are locked while a reviewer responds.";
+    }
+
+    await loadDashboard();
+    renderFindings();
+  } catch (error) {
+    elements.error.textContent = error instanceof Error ? error.message : "The review workflow could not be submitted.";
+    elements.error.hidden = false;
+  } finally {
+    updateSubmissionControls();
+  }
+}
+
+function updateSubmissionControls() {
+  const showSubmitterControls = !isReviewReviewer() && currentFindings.length > 0;
+  const showReviewerControls = reviewerSubmissionMode && currentSubmission?.status === "Submitted";
+  elements.submissionControls.hidden = !showSubmitterControls && !showReviewerControls;
+  if (showReviewerControls) {
+    elements.submitReviewWorkflow.hidden = false;
+    elements.submissionStatus.textContent =
+      `Reviewing ${currentSubmission.projectName}, submitted by ${currentSubmission.submittedBy}. Set a decision for each finding; this response will be read-only to the submitter.`;
+    elements.submitReviewWorkflow.querySelector("span").textContent = "Submit reviewer response";
+    elements.submitReviewWorkflow.disabled = currentSubmission.findings.some(finding =>
+      !(reviewerResponseDrafts[finding.reviewFindingId]?.disposition || finding.reviewerDisposition));
+  } else if (showSubmitterControls && currentSubmission) {
+    elements.submissionStatus.textContent = currentSubmission.status === "Reviewed"
+      ? `Submitted ${new Date(currentSubmission.submittedUtc).toLocaleString()}. Reviewed by ${currentSubmission.reviewedBy || "a reviewer"} on ${new Date(currentSubmission.reviewedUtc).toLocaleString()}. Your justifications and the reviewer response are read-only.`
+      : `Submitted ${new Date(currentSubmission.submittedUtc).toLocaleString()}. Your justifications are locked; a reviewer response will appear here when complete.`;
+    elements.submitReviewWorkflow.hidden = true;
+  } else if (showSubmitterControls) {
+    elements.submissionStatus.textContent =
+      "Add an optional justification under each finding, then submit once. Your submission is locked after it is sent.";
+    elements.submitReviewWorkflow.hidden = false;
+    elements.submitReviewWorkflow.querySelector("span").textContent = "Submit review";
+    elements.submitReviewWorkflow.disabled = false;
+  } else {
+    elements.submitReviewWorkflow.hidden = false;
+  }
+  const hasStickyAction = !elements.submissionControls.hidden &&
+    !elements.submitReviewWorkflow.hidden;
+  elements.submissionControls.classList.toggle("submission-controls-sticky", hasStickyAction);
+  elements.findingsScrollPanel.classList.toggle(
+    "findings-scroll-panel-has-sticky-footer",
+    hasStickyAction
+  );
+}
+
 async function loadDashboard() {
   elements.refreshDashboard.disabled = true;
   try {
+    const reviewer = isReviewReviewer();
     const response = await fetch(
-      `/api/reviews/dashboard?reviewerId=${encodeURIComponent(reviewerId)}&limit=1000`,
+      reviewer
+        ? "/api/reviews/submissions?includeReviewed=true"
+        : "/api/reviews/my-submissions",
       { headers: { Accept: "application/json" } }
     );
     if (!response.ok) {
@@ -1317,11 +3482,26 @@ async function loadDashboard() {
       throw new Error(problem?.detail || problem?.title || `Review dashboard failed (HTTP ${response.status}).`);
     }
 
-    dashboardItems = await response.json();
+    const dashboard = await readJsonResponse(response, "Review dashboard");
+    if (!Array.isArray(dashboard)) {
+      throw new Error("Review dashboard returned an unexpected response format.");
+    }
+    dashboardItems = dashboard.map(item => ({
+      ...item,
+      isSubmission: true,
+      findingsCount: item.findingsCount,
+      closedFindingsCount: item.status === "Reviewed" ? item.findingsCount : 0,
+      waitingFindingsCount: item.status === "Submitted" ? item.findingsCount : 0,
+      feedbackStatus: item.status === "Reviewed" ? "Closed" : "Open"
+    }));
+    elements.dashboardTitle.textContent = reviewer ? "Reviewer queue" : "My submitted reviews";
+    elements.dashboardDescription.textContent = reviewer
+      ? "Review submissions from signed-in users, add a decision and response for each finding, then submit the review."
+      : "Track your submitted reviews and read manager, lead, or administrator responses. Submitted justifications cannot be edited.";
     renderDashboard();
   } catch (error) {
     showError(error instanceof Error
-      ? `${error.message} Verify feedback migration 004 and review-history access.`
+      ? `${error.message} Verify review-history migration 002, application-access migration 008, and review-submission migration 012.`
       : "Review dashboard could not be loaded.");
   } finally {
     elements.refreshDashboard.disabled = false;
@@ -1344,9 +3524,13 @@ function renderDashboard() {
   const runs = dashboardStatus === "Open" ? waitingRuns : closedRuns;
   elements.dashboardRows.replaceChildren(...runs.map(renderDashboardRow));
   elements.dashboardEmpty.hidden = runs.length > 0;
-  elements.dashboardEmpty.textContent = dashboardStatus === "Open"
-    ? "No findings are waiting for your feedback."
-    : "No findings have been submitted and closed yet.";
+  elements.dashboardEmpty.textContent = isReviewReviewer()
+    ? dashboardStatus === "Open"
+      ? "No reviews are waiting for a Manager, Lead, or Admin."
+      : "No completed reviewer responses yet."
+    : dashboardStatus === "Open"
+      ? "You have not submitted any reviews yet."
+      : "No reviewer responses are available yet.";
 }
 
 function renderDashboardRow(run) {
@@ -1370,7 +3554,9 @@ function renderDashboardRow(run) {
   progress.textContent = `${run.closedFindingsCount} submitted · ${run.waitingFindingsCount} waiting`;
   const status = document.createElement("span");
   status.className = `dashboard-status${run.feedbackStatus === "Closed" ? " dashboard-status-closed" : ""}`;
-  status.textContent = run.feedbackStatus === "Closed" ? "Closed" : "Waiting";
+  status.textContent = run.isSubmission
+    ? run.status === "Reviewed" ? "Reviewer response ready" : "Awaiting reviewer"
+    : run.feedbackStatus === "Closed" ? "Closed" : "Waiting";
   responseCell.append(progress, status);
 
   const actions = document.createElement("td");
@@ -1382,7 +3568,7 @@ function renderDashboardRow(run) {
   openButton.addEventListener("click", () => openDashboardRun(run));
   actions.append(openButton);
 
-  if (run.feedbackStatus === "Closed" && run.findingsCount > 0) {
+  if (!run.isSubmission && run.feedbackStatus === "Closed" && run.findingsCount > 0) {
     const reopenButton = document.createElement("button");
     reopenButton.type = "button";
     reopenButton.className = "button button-secondary button-small";
@@ -1396,7 +3582,23 @@ function renderDashboardRow(run) {
 }
 
 async function openDashboardRun(run) {
-  await loadReviewById(run.reviewRunId);
+  if (run.isSubmission && isReviewReviewer()) {
+    try {
+      const response = await fetch(`/api/reviews/submissions/${encodeURIComponent(run.submissionId)}`, {
+        headers: { Accept: "application/json" }
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "Reviewer submission could not be loaded."));
+      }
+
+      await loadReviewById(run.reviewRunId, await response.json());
+    } catch (error) {
+      showError(error instanceof Error ? error.message : "Reviewer submission could not be loaded.");
+      return;
+    }
+  } else {
+    await loadReviewById(run.reviewRunId);
+  }
   elements.overview.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
@@ -1512,7 +3714,23 @@ function renderSummary(result) {
 function renderFindings() {
   const severity = elements.severity.value;
   const query = elements.search.value.trim().toLocaleLowerCase();
+  const categoryCounts = Object.fromEntries(
+    ["tables", "columns", "measures", "relationships", "other"].map(category => [
+      category,
+      currentFindings.filter(finding => getFindingCategory(finding) === category).length
+    ])
+  );
+  document.querySelector('[data-category-count="all"]').textContent = String(currentFindings.length);
+  for (const [category, count] of Object.entries(categoryCounts)) {
+    document.querySelector(`[data-category-count="${category}"]`).textContent = String(count);
+  }
+  for (const tab of elements.findingCategoryTabs) {
+    tab.setAttribute("aria-selected", String(tab.dataset.findingCategory === activeFindingCategory));
+    tab.tabIndex = tab.dataset.findingCategory === activeFindingCategory ? 0 : -1;
+  }
   const visibleFindings = currentFindings.filter((finding) => {
+    const matchesCategory = activeFindingCategory === "all" ||
+      getFindingCategory(finding) === activeFindingCategory;
     const matchesSeverity = severity === "all" || finding.severity === severity;
     const searchable = [
       finding.ruleId,
@@ -1520,10 +3738,10 @@ function renderFindings() {
       finding.location,
       finding.recommendation
     ].join(" ").toLocaleLowerCase();
-    return matchesSeverity && searchable.includes(query);
+    return matchesCategory && matchesSeverity && searchable.includes(query);
   });
 
-  elements.list.replaceChildren(...visibleFindings.map(renderFinding));
+  elements.list.replaceChildren(...renderFindingGroups(visibleFindings));
   elements.empty.hidden = visibleFindings.length > 0;
   elements.empty.querySelector("h3").textContent =
     currentFindings.length === 0 ? "No findings in this review" : "No matching findings";
@@ -1535,7 +3753,67 @@ function renderFindings() {
     currentFindings.length === 0
       ? "No findings"
       : `Showing ${visibleFindings.length} of ${currentFindings.length}`;
+  updateSubmissionControls();
   updateExportButton();
+}
+
+function getFindingCategory(finding) {
+  const ruleId = (finding.ruleId || "").toUpperCase();
+  if (ruleId === "OPT-001" || ruleId === "NAM-001") {
+    return "tables";
+  }
+  if (ruleId === "OPT-002" || ruleId === "NAM-002" || ruleId === "NAM-003") {
+    return "columns";
+  }
+  if (
+    ruleId === "OPT-003" ||
+    ruleId === "NAM-004" ||
+    ruleId === "NAM-005" ||
+    ruleId.startsWith("MEAS-") ||
+    ruleId.startsWith("DAX-")
+  ) {
+    return "measures";
+  }
+  if (ruleId.startsWith("REL-")) {
+    return "relationships";
+  }
+  return "other";
+}
+
+function renderFindingGroups(findings) {
+  const entries = [];
+  const groups = new Map();
+  for (const finding of findings) {
+    if (getFindingCategory(finding) !== "columns") {
+      entries.push(renderFinding(finding));
+      continue;
+    }
+    const match = (finding.location || "").match(/^(.+?)\[[^\]]+\]$/);
+    const tableName = match?.[1] || "Other columns";
+    let group = groups.get(tableName);
+    if (!group) {
+      const container = document.createElement("section");
+      container.className = "finding-group";
+      const heading = document.createElement("h3");
+      heading.className = "finding-group-heading";
+      const title = document.createElement("span");
+      title.textContent = tableName;
+      const count = document.createElement("span");
+      count.className = "finding-group-count";
+      count.textContent = "1 column finding";
+      const cards = document.createElement("div");
+      cards.className = "finding-group-items";
+      heading.append(title, count);
+      container.append(heading, cards);
+      group = { container, count, cards, total: 0 };
+      groups.set(tableName, group);
+      entries.push(container);
+    }
+    group.total += 1;
+    group.count.textContent = `${group.total} column ${group.total === 1 ? "finding" : "findings"}`;
+    group.cards.append(renderFinding(finding));
+  }
+  return entries;
 }
 
 function renderFinding(finding) {
@@ -1567,9 +3845,37 @@ function renderFinding(finding) {
   const message = document.createElement("p");
   message.className = "finding-message";
   message.textContent = finding.message || "Review finding";
-  const recommendation = document.createElement("p");
+  const recommendation = document.createElement("div");
   recommendation.className = "finding-recommendation";
-  recommendation.textContent = finding.recommendation || "";
+  const recommendationLines = (finding.recommendation || "").split(/\r?\n/);
+  const bulletLines = recommendationLines.filter(line => line.trimStart().startsWith("- "));
+  if (bulletLines.length > 0) {
+    const intro = recommendationLines.find(line => line.trim() && !line.trimStart().startsWith("- "));
+    if (intro) {
+      const introText = document.createElement("p");
+      introText.textContent = intro;
+      recommendation.append(introText);
+    }
+    const list = document.createElement("ul");
+    for (const line of bulletLines) {
+      const item = document.createElement("li");
+      item.textContent = line.trimStart().slice(2);
+      list.append(item);
+    }
+    recommendation.append(list);
+  } else {
+    const recommendationText = document.createElement("p");
+    recommendationText.textContent = finding.recommendation || "";
+    recommendation.append(recommendationText);
+  }
+
+  if (applicationSession?.isAuthenticated) {
+    card.append(header, message, recommendation);
+    if (!isReviewReviewer() || (reviewerSubmissionMode && currentSubmission)) {
+      card.append(renderSubmissionFinding(finding));
+    }
+    return card;
+  }
 
   const feedbackRow = document.createElement("div");
   feedbackRow.className = "feedback";
@@ -1695,12 +4001,120 @@ function renderFinding(finding) {
   return card;
 }
 
+function renderSubmissionFinding(finding) {
+  const section = document.createElement("section");
+  section.className = "submission-finding";
+  const submittedFinding = currentSubmission?.findings.find(item =>
+    item.reviewFindingId === finding.reviewFindingId);
+
+  if (reviewerSubmissionMode && currentSubmission) {
+    const justification = document.createElement("p");
+    justification.className = "submission-justification";
+    justification.textContent = `Submitter justification: ${submittedFinding?.justification || "No justification provided."}`;
+    section.append(justification);
+    if (currentSubmission.status === "Reviewed") {
+      const decision = document.createElement("p");
+      decision.className = "submission-review-response";
+      decision.textContent = `Reviewer decision: ${submittedFinding?.reviewerDisposition || "—"}`;
+      const response = document.createElement("p");
+      response.className = "submission-review-response";
+      response.textContent = `Reviewer response: ${submittedFinding?.reviewerResponse || "No additional note."}`;
+      section.append(decision, response);
+      return section;
+    }
+
+    const decisionLabel = document.createElement("label");
+    decisionLabel.className = "submission-field";
+    decisionLabel.textContent = "Reviewer decision";
+    const decision = document.createElement("select");
+    decision.className = "reviewer-disposition";
+    decision.dataset.reviewFindingId = finding.reviewFindingId;
+    for (const [value, label] of [
+      ["", "Choose a decision"],
+      ["Accepted", "Accepted"],
+      ["NeedsChanges", "Needs changes"],
+      ["Noted", "Noted"],
+      ["IncorrectFinding", "Incorrect finding"]
+    ]) {
+      const option = document.createElement("option");
+      option.value = value;
+      option.textContent = label;
+      decision.append(option);
+    }
+    const draft = reviewerResponseDrafts[finding.reviewFindingId] || {};
+    decision.value = draft.disposition || submittedFinding?.reviewerDisposition || "";
+    decision.addEventListener("change", () => {
+      reviewerResponseDrafts[finding.reviewFindingId] = {
+        ...reviewerResponseDrafts[finding.reviewFindingId],
+        disposition: decision.value
+      };
+      updateSubmissionControls();
+    });
+    decisionLabel.append(decision);
+    const responseLabel = document.createElement("label");
+    responseLabel.className = "submission-field";
+    responseLabel.textContent = "Reviewer response";
+    const response = document.createElement("textarea");
+    response.maxLength = 1000;
+    response.rows = 2;
+    response.value = draft.response ?? submittedFinding?.reviewerResponse ?? "";
+    response.placeholder = "Optional response for the submitter";
+    response.addEventListener("input", () => {
+      reviewerResponseDrafts[finding.reviewFindingId] = {
+        ...reviewerResponseDrafts[finding.reviewFindingId],
+        response: response.value
+      };
+    });
+    responseLabel.append(response);
+    section.append(decisionLabel, responseLabel);
+    return section;
+  }
+
+  if (currentSubmission) {
+    const justification = document.createElement("p");
+    justification.className = "submission-justification";
+    justification.textContent = `Your justification: ${submittedFinding?.justification || "No justification provided."}`;
+    section.append(justification);
+    if (currentSubmission.status === "Reviewed") {
+      const decision = document.createElement("p");
+      decision.className = "submission-review-response";
+      decision.textContent = `Reviewer decision: ${submittedFinding?.reviewerDisposition || "—"}`;
+      const response = document.createElement("p");
+      response.className = "submission-review-response";
+      response.textContent = `Reviewer response: ${submittedFinding?.reviewerResponse || "No additional note."}`;
+      section.append(decision, response);
+    } else {
+      const pending = document.createElement("p");
+      pending.className = "submission-pending";
+      pending.textContent = "Reviewer response pending.";
+      section.append(pending);
+    }
+    return section;
+  }
+
+  const label = document.createElement("label");
+  label.className = "submission-field";
+  label.textContent = "Your justification (optional)";
+  const justification = document.createElement("textarea");
+  justification.maxLength = 1000;
+  justification.rows = 2;
+  justification.value = submissionDrafts[finding.reviewFindingId] || "";
+  justification.placeholder = "Add context or explain why this finding needs review";
+  justification.addEventListener("input", () => {
+    submissionDrafts[finding.reviewFindingId] = justification.value;
+  });
+  label.append(justification);
+  section.append(label);
+  return section;
+}
+
 function findingKey(finding) {
   return finding.reviewFindingId ||
     [finding.projectName || currentProject, finding.ruleId, finding.location, finding.message].join("::");
 }
 
 function updateExportButton() {
+  elements.exportButton.hidden = !isReviewReviewer();
   const hasFeedback = Object.values(feedback).some(entry =>
     entry.rating || (entry.comment && entry.comment.trim()));
   elements.exportButton.disabled = !hasFeedback && !sharedFeedbackAvailable;

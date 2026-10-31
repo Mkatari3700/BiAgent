@@ -15,6 +15,16 @@ Accept: application/json
 
 ###
 
+GET {{BISentinel.Api_HostAddress}}/api/governance-audit/scan-scope
+Accept: application/json
+
+###
+
+POST {{BISentinel.Api_HostAddress}}/api/governance-audit/scan?workspaceIds=00000000-0000-0000-0000-000000000001&artifactTypes=Reports&artifactTypes=SemanticModels&checks=GOV-001
+Accept: application/json
+
+###
+
 GET {{BISentinel.Api_HostAddress}}/auth/sign-in
 
 ###

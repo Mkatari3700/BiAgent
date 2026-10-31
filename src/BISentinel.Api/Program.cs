@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Identity.Web;
+using ModelContextProtocol.AspNetCore;
 
 const long MaximumUploadRequestBytes = 501L * 1024 * 1024;
 
@@ -78,6 +79,7 @@ if (entraAuthenticationEnabled)
             options.UsePkce = true;
             options.Events ??= new OpenIdConnectEvents();
             var existingRedirectHandler = options.Events.OnRedirectToIdentityProvider;
+            var existingRemoteFailureHandler = options.Events.OnRemoteFailure;
             options.Events.OnRedirectToIdentityProvider = async context =>
             {
                 if (existingRedirectHandler is not null)
@@ -94,6 +96,48 @@ if (entraAuthenticationEnabled)
                         .Distinct(StringComparer.OrdinalIgnoreCase);
                     context.ProtocolMessage.Scope = string.Join(' ', scopes);
                 }
+            };
+            options.Events.OnRemoteFailure = async context =>
+            {
+                if (existingRemoteFailureHandler is not null)
+                {
+                    await existingRemoteFailureHandler(context);
+                }
+
+                if (context.Response.HasStarted)
+                {
+                    return;
+                }
+
+                var logger = context.HttpContext.RequestServices
+                    .GetRequiredService<ILoggerFactory>()
+                    .CreateLogger("EntraOpenIdConnect");
+                logger.LogWarning(
+                    context.Failure,
+                    "Entra remote sign-in failed on {Method} {Path} using {Scheme}://{Host} with content type {ContentType}.",
+                    context.Request.Method,
+                    context.Request.Path,
+                    context.Request.Scheme,
+                    context.Request.Host,
+                    context.Request.ContentType ?? "(none)");
+
+                context.HandleResponse();
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                context.Response.ContentType = "text/html; charset=utf-8";
+                await context.Response.WriteAsync(
+                    """
+                    <!doctype html>
+                    <html lang="en">
+                    <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Sign-in could not be completed</title></head>
+                    <body style="font-family:Segoe UI,Arial,sans-serif;max-width:680px;margin:12vh auto;padding:24px;color:#17243a">
+                      <h1>Power BI authorization could not be completed</h1>
+                      <p>Return to Governance Audit and select “Authorize Power BI read access” again.</p>
+                      <p>For local development, open BI Sentinel at <a href="https://localhost:7053/modules/governance-audit">https://localhost:7053/modules/governance-audit</a>. The Entra app registration must include the exact redirect URI <code>https://localhost:7053/signin-oidc</code>.</p>
+                      <p>If the problem continues, check the BI Sentinel server log for the callback method, URL, and content type. Do not share authorization codes or sign-in URLs.</p>
+                    </body>
+                    </html>
+                    """,
+                    context.HttpContext.RequestAborted);
             };
         });
     builder.Services.Configure<CookieAuthenticationOptions>(
@@ -150,6 +194,17 @@ builder.Services.AddAuthorization(options =>
             .RequireRole("ApplicationAdmin"));
 });
 
+if (governanceAuditEnabled)
+{
+    builder.Services.AddHttpContextAccessor();
+    builder.Services.AddMcpServer()
+        .WithHttpTransport(options => options.Stateless = true)
+        .AddAuthorizationFilters()
+        .WithTools<PowerBiGovernanceMcpTools>()
+        .WithResources<PowerBiGovernanceMcpResources>()
+        .WithPrompts<PowerBiGovernanceMcpPrompts>();
+}
+
 var feedbackSqlEnabled = builder.Configuration.GetValue<bool>("Feedback:SqlEnabled");
 var reviewHistoryRetentionDays = builder.Configuration.GetValue<int>("ReviewHistory:RetentionDays", 30);
 if (reviewHistoryRetentionDays is < 1 or > 3650)
@@ -175,6 +230,8 @@ builder.Services.AddSingleton<IGovernanceAuditConfigurationStore>(_ =>
     new SqlGovernanceAuditConfigurationStore(connectionString));
 builder.Services.AddSingleton<IGovernanceAuditHistoryStore>(_ =>
     new SqlGovernanceAuditHistoryStore(connectionString));
+builder.Services.AddSingleton<IGovernanceExceptionStore>(_ =>
+    new SqlGovernanceExceptionStore(connectionString));
 builder.Services.AddScoped<IPowerBiDelegatedAccessTokenProvider, PowerBiDelegatedAccessTokenProvider>();
 builder.Services.AddHttpClient<PowerBiGovernanceAuditClient>(client =>
 {
@@ -196,13 +253,22 @@ builder.Services.AddSingleton<IReviewRule, SingleDirectionRelationshipRule>();
 builder.Services.AddSingleton<IReviewRule, ExplicitMeasuresRule>();
 builder.Services.AddSingleton<IReviewRule, DaxDivisionRule>();
 builder.Services.AddSingleton<IReviewRule, DaxFormatRule>();
+builder.Services.AddSingleton<IReviewRule, UnusedTablesRule>();
+builder.Services.AddSingleton<IReviewRule, UnusedColumnsRule>();
+builder.Services.AddSingleton<IReviewRule, UnusedMeasuresRule>();
 builder.Services.AddSingleton<IReviewFeedbackStore>(_ => new SqlReviewFeedbackStore(connectionString));
+builder.Services.AddSingleton<IReviewSubmissionStore>(_ => new SqlReviewSubmissionStore(connectionString));
 builder.Services.AddSingleton<IReviewHistoryStore>(_ => new SqlReviewHistoryStore(connectionString));
 builder.Services.AddHostedService<ReviewHistoryCleanupService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseAuthentication();
 if (entraAuthenticationEnabled)
@@ -226,7 +292,7 @@ if (entraAuthenticationEnabled)
             return;
         }
 
-        if (path.StartsWithSegments("/api"))
+        if (path.StartsWithSegments("/api") || path.StartsWithSegments("/mcp"))
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             context.Response.ContentType = "application/problem+json";
@@ -258,6 +324,10 @@ if (entraAuthenticationEnabled)
                 RedirectUri = redirectUri
             });
     });
+}
+if (governanceAuditEnabled)
+{
+    app.UseMiddleware<McpRequestAuditMiddleware>();
 }
 app.UseAuthorization();
 app.UseDefaultFiles();
@@ -322,6 +392,8 @@ app.MapGet(
             user?.DisplayName,
             user?.EmailAddress,
             user?.IsAdmin ?? false,
+            user?.IsManager ?? false,
+            user?.IsLead ?? false,
             user?.IsBootstrapAdmin ?? false));
     })
     .AllowAnonymous()
@@ -398,7 +470,9 @@ if (entraAuthenticationEnabled)
                 app.Logger.LogError(exception, "Listing BI Sentinel users failed.");
                 return Results.Problem(
                     title: "Application users could not be loaded",
-                    detail: "Verify database migration 008 and application database permissions.",
+                    detail: ApplicationDatabaseError.GetDetail(
+                        exception,
+                        "Verify database migration 008 and application database permissions."),
                     statusCode: StatusCodes.Status503ServiceUnavailable);
             }
         })
@@ -451,7 +525,9 @@ if (entraAuthenticationEnabled)
                 app.Logger.LogError(exception, "Changing BI Sentinel application administrator role failed for user {UserId}.", userId);
                 return Results.Problem(
                     title: "Application role could not be changed",
-                    detail: "Verify database migration 008 and application database permissions.",
+                    detail: ApplicationDatabaseError.GetDetail(
+                        exception,
+                        "Verify database migration 008 and application database permissions."),
                     statusCode: StatusCodes.Status503ServiceUnavailable);
             }
         })
@@ -461,6 +537,66 @@ if (entraAuthenticationEnabled)
         .Produces<ApplicationUserAdminResponse>(StatusCodes.Status200OK)
         .Produces(StatusCodes.Status404NotFound)
         .Produces(StatusCodes.Status409Conflict)
+        .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+    app.MapPut(
+        "/api/admin/application-users/{userId:guid}/review-role",
+        async (
+            Guid userId,
+            SetApplicationUserReviewRoleRequest request,
+            HttpContext httpContext,
+            IApplicationUserStore userStore,
+            ApplicationAuthenticationSettings settings,
+            CancellationToken cancellationToken) =>
+        {
+            if (request.RoleName is not ("ReviewManager" or "ReviewLead"))
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    [nameof(request.RoleName)] = ["RoleName must be ReviewManager or ReviewLead."]
+                });
+            }
+
+            var actor = ApplicationUserContext.Get(httpContext);
+            if (actor is null)
+            {
+                return Results.Problem(
+                    title: "Application identity is unavailable",
+                    detail: "Sign in again before changing application roles.",
+                    statusCode: StatusCodes.Status401Unauthorized);
+            }
+
+            try
+            {
+                var result = await userStore.SetReviewerRoleAsync(
+                    settings.TenantId,
+                    userId,
+                    actor.UserId,
+                    request.RoleName,
+                    request.IsGranted,
+                    cancellationToken);
+                return result == ApplicationUserRoleChangeResult.UserNotFound
+                    ? Results.NotFound()
+                    : Results.Ok(new ApplicationUserReviewRoleResponse(
+                        userId,
+                        request.RoleName,
+                        request.IsGranted));
+            }
+            catch (SqlException exception)
+            {
+                app.Logger.LogError(exception, "Changing BI Sentinel reviewer role failed for user {UserId}.", userId);
+                return Results.Problem(
+                    title: "Reviewer role could not be changed",
+                    detail: "Verify database migration 012 and application database permissions.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        })
+        .RequireAuthorization("ApplicationAdmin")
+        .WithTags("Administration")
+        .WithSummary("Grant or remove a BI Sentinel Manager or Lead reviewer role")
+        .Produces<ApplicationUserReviewRoleResponse>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status404NotFound)
+        .ProducesValidationProblem()
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 }
@@ -574,14 +710,31 @@ if (!governanceAuditEnabled || !entraAuthenticationEnabled)
         statusCode: StatusCodes.Status503ServiceUnavailable);
 
     app.MapGet("/api/governance-audit/configuration", GovernanceAuditUnavailable);
+    app.MapGet("/api/governance-audit/scan-scope", GovernanceAuditUnavailable);
+    app.MapGet("/api/governance-audit/access-status", GovernanceAuditUnavailable);
     app.MapPut("/api/governance-audit/configuration", GovernanceAuditUnavailable);
+    app.MapGet("/api/governance-audit/checks", GovernanceAuditUnavailable);
     app.MapGet("/api/governance-audit/workspaces", GovernanceAuditUnavailable);
+    app.MapGet("/api/governance-audit/scan-workspaces", GovernanceAuditUnavailable);
+    app.MapGet("/api/governance-audit/workspaces/{workspaceId:guid}/artifacts", GovernanceAuditUnavailable);
+    app.MapGet("/api/governance-audit/apps", GovernanceAuditUnavailable);
+    app.MapGet("/api/governance-audit/gateways", GovernanceAuditUnavailable);
     app.MapPost("/api/governance-audit/scan", GovernanceAuditUnavailable);
     app.MapGet("/api/governance-audit/runs", GovernanceAuditUnavailable);
+    app.MapGet("/api/governance-audit/runs/{runId:guid}/export", GovernanceAuditUnavailable);
+    app.MapPost("/api/governance-audit/exceptions", GovernanceAuditUnavailable);
+    app.MapPost("/api/governance-audit/exceptions/{exceptionId:guid}/revoke", GovernanceAuditUnavailable);
     app.MapGet("/api/governance-audit/signin", GovernanceAuditUnavailable);
 }
 else
 {
+    app.MapGet(
+        "/api/governance-audit/checks",
+        () => Results.Ok(GovernanceCheckCatalog.All))
+        .RequireAuthorization("GovernanceAuditReader")
+        .WithTags("Governance Audit")
+        .WithSummary("List versioned Governance Audit checks");
+
     app.MapGet(
         "/api/governance-audit/signin",
         () =>
@@ -596,6 +749,40 @@ else
         .RequireAuthorization("GovernanceAuditAdmin")
         .WithTags("Governance Audit")
         .WithSummary("Request delegated read access to Power BI");
+
+    app.MapGet(
+        "/api/governance-audit/access-status",
+        async (
+            IPowerBiDelegatedAccessTokenProvider tokenProvider,
+            HttpContext context) =>
+        {
+            try
+            {
+                await tokenProvider.GetAccessTokenAsync(
+                    context.User,
+                    "https://analysis.windows.net/powerbi/api/Workspace.Read.All");
+                var modelMetadataAuthorized = true;
+                try
+                {
+                    await tokenProvider.GetAccessTokenAsync(
+                        context.User,
+                        "https://analysis.windows.net/powerbi/api/Tenant.Read.All");
+                }
+                catch (PowerBiDelegatedConsentRequiredException)
+                {
+                    modelMetadataAuthorized = false;
+                }
+
+                return Results.Ok(new { authorized = true, modelMetadataAuthorized });
+            }
+            catch (PowerBiDelegatedConsentRequiredException)
+            {
+                return Results.Ok(new { authorized = false, modelMetadataAuthorized = false });
+            }
+        })
+        .RequireAuthorization("GovernanceAuditAdmin")
+        .WithTags("Governance Audit")
+        .WithSummary("Check delegated Power BI read authorization");
 
     app.MapGet(
         "/api/governance-audit/configuration",
@@ -619,6 +806,176 @@ else
         .RequireAuthorization("GovernanceAuditAdmin")
         .WithTags("Governance Audit")
         .WithSummary("Get the approved Governance Audit workspace scope");
+
+    app.MapGet(
+        "/api/governance-audit/scan-scope",
+        async (
+            IGovernanceAuditConfigurationStore configurationStore,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var configuration = await configurationStore.GetAsync(cancellationToken);
+                return Results.Ok(new
+                {
+                    workspaceIds = configuration.WorkspaceIds,
+                    maximumWorkspaces = maximumGovernanceWorkspaces
+                });
+            }
+            catch (SqlException exception)
+            {
+                app.Logger.LogError(exception, "Loading Governance Audit scan scope failed.");
+                return Results.Problem(
+                    title: "Governance Audit scan scope could not be loaded",
+                    detail: "Verify database migration 007 and application database permissions.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        })
+        .RequireAuthorization("GovernanceAuditReader")
+        .WithTags("Governance Audit")
+        .WithSummary("Get the approved workspace IDs available for a Governance Audit scan");
+
+    app.MapGet(
+        "/api/governance-audit/scan-workspaces",
+        async (
+            IGovernanceAuditConfigurationStore configurationStore,
+            PowerBiGovernanceAuditClient auditClient,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var approvedScope = await configurationStore.GetAsync(cancellationToken);
+                var workspaces = await auditClient.GetApprovedWorkspaceDetailsAsync(
+                    approvedScope.WorkspaceIds,
+                    httpContext.User,
+                    cancellationToken);
+                return Results.Ok(workspaces);
+            }
+            catch (SqlException exception)
+            {
+                app.Logger.LogError(exception, "Loading approved Governance Audit workspace names failed.");
+                return Results.Problem(
+                    title: "Approved workspace names could not be loaded",
+                    detail: "Verify Governance Audit database migrations and application database permissions.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+            catch (PowerBiAuditException exception)
+            {
+                app.Logger.LogWarning(exception, "Loading approved Power BI workspace names failed with HTTP {StatusCode}.", (int)exception.StatusCode);
+                return Results.Problem(
+                    title: "Power BI workspace names could not be loaded",
+                    detail: exception.Message,
+                    statusCode: exception.RequiresConsent
+                        ? StatusCodes.Status409Conflict
+                        : StatusCodes.Status502BadGateway);
+            }
+        })
+        .RequireAuthorization("GovernanceAuditReader")
+        .WithTags("Governance Audit")
+        .WithSummary("Get names and metadata for only the approved Governance Audit workspaces");
+
+    app.MapGet(
+        "/api/governance-audit/workspaces/{workspaceId:guid}/artifacts",
+        async (
+            Guid workspaceId,
+            IGovernanceAuditConfigurationStore configurationStore,
+            PowerBiGovernanceAuditClient auditClient,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var approvedScope = await configurationStore.GetAsync(cancellationToken);
+                if (!approvedScope.WorkspaceIds.Contains(workspaceId))
+                {
+                    return Results.NotFound(new ProblemDetails
+                    {
+                        Title = "Workspace not in approved Governance Audit scope",
+                        Detail = "Artifact discovery is limited to workspaces approved by a BI Sentinel administrator.",
+                        Status = StatusCodes.Status404NotFound
+                    });
+                }
+
+                return Results.Ok(await auditClient.GetWorkspaceArtifactCatalogAsync(
+                    workspaceId,
+                    httpContext.User,
+                    cancellationToken));
+            }
+            catch (SqlException exception)
+            {
+                app.Logger.LogError(exception, "Loading Governance Audit artifact catalog for workspace {WorkspaceId} failed.", workspaceId);
+                return Results.Problem(
+                    title: "Artifact list could not be loaded",
+                    detail: "Verify Governance Audit database migrations and application database permissions.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+            catch (PowerBiAuditException exception)
+            {
+                app.Logger.LogWarning(exception, "Power BI artifact discovery failed for workspace {WorkspaceId} with HTTP {StatusCode}.", workspaceId, (int)exception.StatusCode);
+                return Results.Problem(
+                    title: "Power BI artifact discovery failed",
+                    detail: exception.Message,
+                    statusCode: exception.RequiresConsent
+                        ? StatusCodes.Status409Conflict
+                        : StatusCodes.Status502BadGateway);
+            }
+        })
+        .RequireAuthorization("GovernanceAuditReader")
+        .WithTags("Governance Audit")
+        .WithSummary("List reports and dashboards in one approved workspace");
+
+    app.MapGet(
+        "/api/governance-audit/apps",
+        async (
+            PowerBiGovernanceAuditClient auditClient,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                return Results.Ok(await auditClient.GetAppsAsync(httpContext.User, cancellationToken));
+            }
+            catch (PowerBiAuditException exception)
+            {
+                app.Logger.LogWarning(exception, "Power BI installed app discovery failed with HTTP {StatusCode}.", (int)exception.StatusCode);
+                return Results.Problem(
+                    title: "Power BI installed apps could not be loaded",
+                    detail: exception.Message,
+                    statusCode: exception.RequiresConsent
+                        ? StatusCodes.Status409Conflict
+                        : StatusCodes.Status502BadGateway);
+            }
+        })
+        .RequireAuthorization("GovernanceAuditReader")
+        .WithTags("Governance Audit")
+        .WithSummary("List installed Power BI apps visible to the signed-in user");
+
+    app.MapGet(
+        "/api/governance-audit/gateways",
+        async (
+            PowerBiGovernanceAuditClient auditClient,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                return Results.Ok(await auditClient.GetGatewaysAsync(httpContext.User, cancellationToken));
+            }
+            catch (PowerBiAuditException exception)
+            {
+                app.Logger.LogWarning(exception, "Power BI gateway discovery failed with HTTP {StatusCode}.", (int)exception.StatusCode);
+                return Results.Problem(
+                    title: "Power BI gateways could not be loaded",
+                    detail: exception.Message,
+                    statusCode: exception.RequiresConsent
+                        ? StatusCodes.Status409Conflict
+                        : StatusCodes.Status502BadGateway);
+            }
+        })
+        .RequireAuthorization("GovernanceAuditReader")
+        .WithTags("Governance Audit")
+        .WithSummary("List gateways where the signed-in user has gateway administrator access");
 
     app.MapPut(
         "/api/governance-audit/configuration",
@@ -725,7 +1082,9 @@ else
                 app.Logger.LogError(exception, "Loading recent Governance Audit runs failed.");
                 return Results.Problem(
                     title: "Governance Audit history could not be loaded",
-                    detail: "Apply database migration 007 and verify application database permissions.",
+                    detail: exception.Number == 208
+                        ? "The Governance Audit history schema is incomplete. Apply migrations 007, 009, 010, 011, 014, 015, and 016 to SmartAgent."
+                        : "Apply Governance Audit migrations 007, 009, 010, 011, 014, 015, and 016 and verify application database permissions.",
                     statusCode: StatusCodes.Status503ServiceUnavailable);
             }
         })
@@ -738,19 +1097,33 @@ else
         async (
             Guid runId,
             IGovernanceAuditHistoryStore historyStore,
+            IGovernanceExceptionStore exceptionStore,
             CancellationToken cancellationToken) =>
         {
             try
             {
                 var result = await historyStore.GetAsync(runId, cancellationToken);
-                return result is null ? Results.NotFound() : Results.Ok(result);
+                if (result is null)
+                {
+                    return Results.NotFound();
+                }
+
+                var exceptions = await exceptionStore.GetForFindingsAsync(
+                    result.Findings,
+                    cancellationToken);
+                return Results.Ok(GovernanceExceptionApplicator.Apply(
+                    result,
+                    exceptions,
+                    DateTimeOffset.UtcNow));
             }
             catch (SqlException exception)
             {
                 app.Logger.LogError(exception, "Loading saved Governance Audit run {RunId} failed.", runId);
                 return Results.Problem(
                     title: "Governance Audit run could not be loaded",
-                    detail: "Verify database migration 007 and application database permissions.",
+                    detail: exception.Number == 208
+                        ? "The Governance Audit history or exception schema is incomplete. Apply migrations 007, 009, 010, 011, 014, 015, and 016 to SmartAgent."
+                        : "Verify Governance Audit migrations 007, 009, 010, 011, 014, 015, and 016 and application database permissions.",
                     statusCode: StatusCodes.Status503ServiceUnavailable);
             }
         })
@@ -758,14 +1131,221 @@ else
         .WithTags("Governance Audit")
         .WithSummary("Load a saved Governance Audit run");
 
+    app.MapGet(
+        "/api/governance-audit/runs/{runId:guid}/export",
+        async Task<IResult> (
+            Guid runId,
+            IGovernanceAuditHistoryStore historyStore,
+            IGovernanceExceptionStore exceptionStore,
+            CancellationToken cancellationToken) =>
+        {
+            try
+            {
+                var result = await historyStore.GetAsync(runId, cancellationToken);
+                if (result is null)
+                {
+                    return Results.NotFound();
+                }
+
+                var exceptions = await exceptionStore.GetForFindingsAsync(
+                    result.Findings,
+                    cancellationToken);
+                var currentResult = GovernanceExceptionApplicator.Apply(
+                    result,
+                    exceptions,
+                    DateTimeOffset.UtcNow);
+                var workbook = GovernanceExcelExporter.CreateWorkbook(currentResult);
+                return Results.File(
+                    workbook,
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    $"bi-sentinel-governance-audit-{currentResult.ScannedUtc:yyyy-MM-dd}.xlsx");
+            }
+            catch (SqlException exception)
+            {
+                app.Logger.LogError(exception, "Exporting saved Governance Audit run {RunId} failed.", runId);
+                return Results.Problem(
+                    title: "Governance Audit workbook could not be exported",
+                    detail: "Verify Governance Audit history and exception migrations and application database permissions.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        })
+        .RequireAuthorization("GovernanceAuditReader")
+        .WithTags("Governance Audit")
+        .WithSummary("Export a saved Governance Audit run as an Excel workbook");
+
+    app.MapPost(
+        "/api/governance-audit/exceptions",
+        async (
+            CreateGovernanceExceptionRequest request,
+            IGovernanceExceptionStore exceptionStore,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var validationErrors = new Dictionary<string, string[]>();
+            if (request.RunId == Guid.Empty || request.WorkspaceId == Guid.Empty)
+            {
+                validationErrors[nameof(request.RunId)] = ["Select a saved audit run and workspace."];
+            }
+
+            if (!GovernanceCheckCatalog.TryGet(request.CheckId, out var check))
+            {
+                validationErrors[nameof(request.CheckId)] = ["Select a registered governance check."];
+            }
+
+            if (request.ArtifactId == Guid.Empty)
+            {
+                validationErrors[nameof(request.ArtifactId)] = ["Artifact ID must be a non-empty GUID or omitted when unavailable."];
+            }
+
+            var artifactName = request.ArtifactName?.Trim();
+            if (string.IsNullOrWhiteSpace(artifactName) || artifactName.Length > 256)
+            {
+                validationErrors[nameof(request.ArtifactName)] = ["Artifact name is required and must be 256 characters or fewer."];
+            }
+
+            var owner = request.Owner?.Trim();
+            if (string.IsNullOrWhiteSpace(owner) || owner.Length > 256)
+            {
+                validationErrors[nameof(request.Owner)] = ["Exception owner is required and must be 256 characters or fewer."];
+            }
+
+            var reason = request.Reason?.Trim();
+            if (string.IsNullOrWhiteSpace(reason) || reason.Length > 2000)
+            {
+                validationErrors[nameof(request.Reason)] = ["A reason is required and must be 2,000 characters or fewer."];
+            }
+
+            var artifactType = request.ArtifactType?.Trim();
+            if (artifactType?.Length > 40)
+            {
+                validationErrors[nameof(request.ArtifactType)] = ["Artifact type must be 40 characters or fewer."];
+            }
+
+            if (request.ExpiresUtc <= DateTimeOffset.UtcNow)
+            {
+                validationErrors[nameof(request.ExpiresUtc)] = ["Expiry must be a future date and time."];
+            }
+            else if (request.ExpiresUtc > DateTimeOffset.UtcNow.AddYears(1))
+            {
+                validationErrors[nameof(request.ExpiresUtc)] = ["An exception cannot be approved for more than one year."];
+            }
+
+            if (validationErrors.Count > 0)
+            {
+                return Results.ValidationProblem(validationErrors);
+            }
+
+            var normalizedRequest = request with
+            {
+                CheckId = check!.CheckId,
+                ArtifactName = artifactName!,
+                ArtifactType = string.IsNullOrEmpty(artifactType) ? null : artifactType,
+                Owner = owner!,
+                Reason = reason!
+            };
+            var actor = ApplicationUserContext.Get(httpContext)?.EmailAddress
+                ?? httpContext.User.Identity?.Name
+                ?? "Governance Audit administrator";
+            try
+            {
+                return Results.Ok(await exceptionStore.ApproveAsync(
+                    normalizedRequest,
+                    actor,
+                    cancellationToken));
+            }
+            catch (GovernanceExceptionConflictException exception)
+            {
+                return Results.Conflict(new { title = "Exception could not be approved", detail = exception.Message });
+            }
+            catch (SqlException exception)
+            {
+                app.Logger.LogError(exception, "Approving a Governance Audit exception failed.");
+                return Results.Problem(
+                    title: "Governance exception could not be saved",
+                    detail: "Verify migration 015 and application database permissions.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        })
+        .RequireAuthorization("GovernanceAuditAdmin")
+        .WithTags("Governance Audit")
+        .WithSummary("Approve a time-limited exception for a saved failing finding")
+        .Produces<GovernanceExceptionRecord>(StatusCodes.Status200OK)
+        .ProducesValidationProblem()
+        .Produces(StatusCodes.Status409Conflict);
+
+    app.MapPost(
+        "/api/governance-audit/exceptions/{exceptionId:guid}/revoke",
+        async (
+            Guid exceptionId,
+            RevokeGovernanceExceptionRequest request,
+            IGovernanceExceptionStore exceptionStore,
+            HttpContext httpContext,
+            CancellationToken cancellationToken) =>
+        {
+            var reason = request.Reason?.Trim();
+            if (string.IsNullOrWhiteSpace(reason) || reason.Length > 2000)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    [nameof(request.Reason)] = ["A revocation reason is required and must be 2,000 characters or fewer."]
+                });
+            }
+
+            var actor = ApplicationUserContext.Get(httpContext)?.EmailAddress
+                ?? httpContext.User.Identity?.Name
+                ?? "Governance Audit administrator";
+            try
+            {
+                var record = await exceptionStore.RevokeAsync(
+                    exceptionId,
+                    reason,
+                    actor,
+                    cancellationToken);
+                return record is null
+                    ? Results.NotFound()
+                    : Results.Ok(record);
+            }
+            catch (GovernanceExceptionConflictException exception)
+            {
+                return Results.Conflict(new { title = "Exception could not be revoked", detail = exception.Message });
+            }
+            catch (SqlException exception)
+            {
+                app.Logger.LogError(exception, "Revoking Governance Audit exception {ExceptionId} failed.", exceptionId);
+                return Results.Problem(
+                    title: "Governance exception could not be revoked",
+                    detail: "Verify migration 015 and application database permissions.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        })
+        .RequireAuthorization("GovernanceAuditAdmin")
+        .WithTags("Governance Audit")
+        .WithSummary("Revoke an active Governance Audit exception and preserve its audit trail")
+        .Produces<GovernanceExceptionRecord>(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status404NotFound)
+        .Produces(StatusCodes.Status409Conflict)
+        .ProducesValidationProblem();
+
     app.MapPost(
         "/api/governance-audit/scan",
         async (
             IGovernanceAuditConfigurationStore configurationStore,
             IGovernanceAuditHistoryStore historyStore,
+            IGovernanceExceptionStore exceptionStore,
             PowerBiGovernanceAuditClient auditClient,
             HttpContext httpContext,
-            CancellationToken cancellationToken) =>
+            CancellationToken cancellationToken,
+            [FromQuery] string[]? checks,
+            [FromQuery] Guid[]? workspaceIds,
+            [FromQuery] string[]? artifactTypes,
+            [FromQuery] Guid[]? reportIds,
+            [FromQuery] Guid[]? dashboardIds,
+            [FromQuery] bool? filterReports,
+            [FromQuery] bool? filterDashboards,
+            [FromQuery] Guid[]? appIds,
+            [FromQuery] Guid[]? gatewayIds,
+            [FromQuery] bool? filterApps,
+            [FromQuery] bool? filterGateways) =>
         {
             GovernanceAuditConfiguration configuration;
             try
@@ -793,13 +1373,54 @@ else
                 });
             }
 
+            Guid[] selectedWorkspaceIds;
+            try
+            {
+                selectedWorkspaceIds = GovernanceAuditSelection.ValidateWorkspaceIds(
+                    configuration.WorkspaceIds,
+                    workspaceIds,
+                    maximumGovernanceWorkspaces);
+            }
+            catch (ArgumentException exception)
+            {
+                return Results.BadRequest(new ProblemDetails
+                {
+                    Title = "Invalid Governance Audit workspace selection",
+                    Detail = exception.Message,
+                    Status = StatusCodes.Status400BadRequest
+                });
+            }
+
             GovernanceAuditResult result;
             try
             {
                 result = await auditClient.ScanAsync(
-                    configuration.WorkspaceIds,
+                    selectedWorkspaceIds,
                     httpContext.User,
-                    cancellationToken);
+                    cancellationToken,
+                    checks,
+                    artifactTypes,
+                    filterReports == true && artifactTypes?.Contains("Reports", StringComparer.OrdinalIgnoreCase) == true
+                        ? reportIds ?? []
+                        : null,
+                    filterDashboards == true && artifactTypes?.Contains("Dashboards", StringComparer.OrdinalIgnoreCase) == true
+                        ? dashboardIds ?? []
+                        : null,
+                    filterApps == true && artifactTypes?.Contains("Apps", StringComparer.OrdinalIgnoreCase) == true
+                        ? appIds ?? []
+                        : null,
+                    filterGateways == true && artifactTypes?.Contains("Gateways", StringComparer.OrdinalIgnoreCase) == true
+                        ? gatewayIds ?? []
+                        : null);
+            }
+            catch (ArgumentException exception)
+            {
+                return Results.BadRequest(new ProblemDetails
+                {
+                    Title = "Invalid Governance Audit selection",
+                    Detail = exception.Message,
+                    Status = StatusCodes.Status400BadRequest
+                });
             }
             catch (PowerBiAuditException exception)
             {
@@ -817,7 +1438,14 @@ else
             try
             {
                 var runId = await historyStore.SaveAsync(result, scannedBy, cancellationToken);
-                return Results.Ok(result with { RunId = runId });
+                var savedResult = result with { RunId = runId };
+                var exceptions = await exceptionStore.GetForFindingsAsync(
+                    savedResult.Findings,
+                    cancellationToken);
+                return Results.Ok(GovernanceExceptionApplicator.Apply(
+                    savedResult,
+                    exceptions,
+                    DateTimeOffset.UtcNow));
             }
             catch (SqlException exception)
             {
@@ -826,14 +1454,48 @@ else
                     "Saving Governance Audit scan results failed with SQL error {SqlErrorNumber}.",
                     exception.Number);
                 return Results.Problem(
-                    title: "Governance Audit results could not be saved",
-                    detail: $"Power BI was read, but its results could not be saved (SQL error {exception.Number}). This does not necessarily mean migration 007 is missing; review the server log and confirm the application is connected to SmartAgent.",
+                    title: exception.Number == 208 &&
+                           exception.Message.Contains("BiAgentGovernanceExceptions", StringComparison.OrdinalIgnoreCase)
+                        ? "Governance exception status could not be applied"
+                        : "Governance Audit results could not be saved",
+                    detail: exception.Number == 207
+                        ? "Power BI was read, but required Governance Audit columns are missing. Apply migrations 009 and 010 to SmartAgent, then retry."
+                        : exception.Number == 547 &&
+                          exception.Message.Contains(
+                              "CK_BiAgentGovernanceAuditRunFindings_Severity",
+                              StringComparison.OrdinalIgnoreCase)
+                            ? "Power BI was read, but the database severity constraint does not permit the selected governance check severity. Apply database migration 013 to SmartAgent, then retry the scan."
+                        : exception.Number == 547 &&
+                          exception.Message.Contains(
+                              "CK_BiAgentGovernanceAuditRunArtifacts_Type",
+                              StringComparison.OrdinalIgnoreCase)
+                            ? "Power BI was read, but the database does not permit Dashboard records yet. Apply database migration 010 to SmartAgent, then retry the scan."
+                        : exception.Number == 208 &&
+                          exception.Message.Contains(
+                              "BiAgentGovernanceAuditRunGlobalArtifacts",
+                              StringComparison.OrdinalIgnoreCase)
+                            ? "Power BI was read, but the database does not have the global Apps/Gateways history table. Apply database migration 011 to SmartAgent, then retry the scan."
+                        : exception.Number == 208 &&
+                          (exception.Message.Contains("BiAgentGovernanceAuditRunReportConnections", StringComparison.OrdinalIgnoreCase) ||
+                           exception.Message.Contains("BiAgentGovernanceAuditRunGlobalArtifacts", StringComparison.OrdinalIgnoreCase))
+                            ? "Power BI was read, but required inventory tables are missing. Apply database migration 014 to SmartAgent, then retry the scan."
+                        : exception.Number == 208 &&
+                          exception.Message.Contains("BiAgentGovernanceExceptions", StringComparison.OrdinalIgnoreCase)
+                            ? "The audit run was saved, but exception status could not be loaded. Apply database migration 015 to SmartAgent and verify application database permissions."
+                            : $"Power BI was read, but its results could not be saved (SQL error {exception.Number}). Review the server log and confirm the application is connected to SmartAgent.",
                     statusCode: StatusCodes.Status503ServiceUnavailable);
             }
         })
         .RequireAuthorization("GovernanceAuditReader")
         .WithTags("Governance Audit")
-        .WithSummary("Run a read-only audit of approved Power BI workspaces");
+        .WithSummary("Run a read-only audit of approved Power BI workspaces")
+        .WithDescription("Runs the selected checks against approved workspaces. OPT-001 through OPT-003 automatically request semantic-model table metadata; unavailable metadata is recorded as insufficient evidence.")
+        .DisableAntiforgery();
+
+    app.MapMcp("/mcp")
+        .RequireAuthorization("GovernanceAuditReader")
+        .WithTags("Power BI Governance MCP")
+        .WithSummary("Access the BI Sentinel Power BI Governance MCP tools, resources, and prompts");
 }
 
 app.MapPost(
@@ -841,6 +1503,7 @@ app.MapPost(
     async (
         IFormFile file,
         string? projectId,
+        HttpContext httpContext,
         PbipProjectInputService projectInput,
         IReviewHistoryStore historyStore,
         ILogger<Program> logger,
@@ -849,10 +1512,17 @@ app.MapPost(
         try
         {
             var review = await projectInput.ReviewArchiveAsync(file, projectId, cancellationToken);
+            var user = ApplicationUserContext.Get(httpContext);
+            if (user is null)
+            {
+                return Results.Unauthorized();
+            }
+
             return await SaveReviewAsync(
                 review,
                 historyStore,
                 reviewHistoryRetentionDays,
+                user.UserId,
                 logger,
                 cancellationToken);
         }
@@ -900,6 +1570,7 @@ app.MapGet(
     async (
         int? limit,
         string? projectName,
+        HttpContext httpContext,
         IReviewHistoryStore historyStore,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
@@ -924,9 +1595,16 @@ app.MapGet(
 
         try
         {
+            var user = ApplicationUserContext.Get(httpContext);
+            if (user is null)
+            {
+                return Results.Unauthorized();
+            }
+
             return Results.Ok(await historyStore.GetRecentAsync(
                 resultLimit,
                 searchName,
+                user.IsAdmin || user.IsManager || user.IsLead ? null : user.UserId,
                 cancellationToken));
         }
         catch (SqlException exception)
@@ -940,7 +1618,7 @@ app.MapGet(
     })
     .WithTags("Reviews")
     .WithSummary("Search saved review history")
-    .WithDescription("Searches unexpired review summaries by project name, up to 500 entries.")
+    .WithDescription("Searches up to 500 unexpired review summaries belonging to the signed-in uploader, or all runs for an authorized Admin, Manager, or Lead reviewer.")
     .Produces<IReadOnlyList<ReviewHistorySummary>>(StatusCodes.Status200OK)
     .ProducesValidationProblem()
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
@@ -949,13 +1627,23 @@ app.MapGet(
     "/api/reviews/history/{reviewRunId:guid}",
     async (
         Guid reviewRunId,
+        HttpContext httpContext,
         IReviewHistoryStore historyStore,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
     {
         try
         {
-            var entry = await historyStore.GetAsync(reviewRunId, cancellationToken);
+            var user = ApplicationUserContext.Get(httpContext);
+            if (user is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            var entry = await historyStore.GetAsync(
+                reviewRunId,
+                user.IsAdmin || user.IsManager || user.IsLead ? null : user.UserId,
+                cancellationToken);
             return entry is null ? Results.NotFound() : Results.Ok(entry);
         }
         catch (SqlException exception)
@@ -969,9 +1657,242 @@ app.MapGet(
     })
     .WithTags("Reviews")
     .WithSummary("Load a saved review")
-    .WithDescription("Returns an unexpired review summary and its findings.")
+    .WithDescription("Returns an unexpired review summary and findings only when owned by the signed-in uploader or when requested by an authorized reviewer.")
     .Produces<ReviewHistoryEntry>(StatusCodes.Status200OK)
     .Produces(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapGet(
+    "/api/reviews/history/{reviewRunId:guid}/submission",
+    async (
+        Guid reviewRunId,
+        HttpContext httpContext,
+        IReviewSubmissionStore submissionStore,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            return Results.Ok(await submissionStore.GetMineAsync(
+                reviewRunId,
+                user.UserId,
+                cancellationToken));
+        }
+        catch (SqlException exception)
+        {
+            logger.LogError(exception, "Loading current user's review submission failed.");
+            return Results.Problem(
+                title: "Review submission could not be loaded",
+                detail: "Verify database migration 012 and application database permissions.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .WithTags("Review submissions")
+    .WithSummary("Load the signed-in user's submitted response and reviewer feedback")
+    .Produces<ReviewSubmission>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapPost(
+    "/api/reviews/history/{reviewRunId:guid}/submission",
+    async (
+        Guid reviewRunId,
+        SubmitReviewRequest request,
+        HttpContext httpContext,
+        IReviewSubmissionStore submissionStore,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        var errors = ReviewSubmissionValidator.Validate(request);
+        if (errors.Count > 0)
+        {
+            return Results.ValidationProblem(errors);
+        }
+
+        try
+        {
+            var submission = await submissionStore.SubmitAsync(
+                reviewRunId,
+                user.UserId,
+                request.Findings,
+                cancellationToken);
+            return submission is null
+                ? Results.Conflict(new
+                {
+                    title = "Review cannot be submitted",
+                    detail = "The review may have expired, the finding list changed, or this review was already submitted."
+                })
+                : Results.Ok(submission);
+        }
+        catch (SqlException exception)
+        {
+            logger.LogError(exception, "Saving review submission failed for review run {ReviewRunId}.", reviewRunId);
+            return Results.Problem(
+                title: "Review submission could not be saved",
+                detail: "Verify database migration 012 and application database permissions.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .WithTags("Review submissions")
+    .WithSummary("Submit the user's per-finding justifications and lock the submission")
+    .Produces<ReviewSubmission>(StatusCodes.Status200OK)
+    .Produces(StatusCodes.Status409Conflict)
+    .ProducesValidationProblem()
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapGet(
+    "/api/reviews/my-submissions",
+    async (
+        HttpContext httpContext,
+        IReviewSubmissionStore submissionStore,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            return Results.Ok(await submissionStore.GetMyQueueAsync(user.UserId, cancellationToken));
+        }
+        catch (SqlException exception)
+        {
+            logger.LogError(exception, "Loading the current user's submission list failed.");
+            return Results.Problem(
+                title: "Submitted reviews could not be loaded",
+                detail: "Verify database migration 012 and application database permissions.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .WithTags("Review submissions")
+    .WithSummary("List submissions owned by the signed-in user")
+    .Produces<IReadOnlyList<ReviewSubmissionSummary>>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapGet(
+    "/api/reviews/submissions",
+    async (
+        bool? includeReviewed,
+        IReviewSubmissionStore submissionStore,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await submissionStore.GetQueueAsync(
+                includeReviewed == true,
+                cancellationToken));
+        }
+        catch (SqlException exception)
+        {
+            logger.LogError(exception, "Loading reviewer submission queue failed.");
+            return Results.Problem(
+                title: "Review queue could not be loaded",
+                detail: "Verify database migration 012 and application database permissions.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
+    .WithTags("Review submissions")
+    .WithSummary("List pending or completed submissions for authorized reviewers")
+    .Produces<IReadOnlyList<ReviewSubmissionSummary>>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapGet(
+    "/api/reviews/submissions/{submissionId:guid}",
+    async (
+        Guid submissionId,
+        IReviewSubmissionStore submissionStore,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            var submission = await submissionStore.GetAsync(submissionId, cancellationToken);
+            return submission is null ? Results.NotFound() : Results.Ok(submission);
+        }
+        catch (SqlException exception)
+        {
+            logger.LogError(exception, "Loading reviewer submission {SubmissionId} failed.", submissionId);
+            return Results.Problem(
+                title: "Submitted review could not be loaded",
+                detail: "Verify database migration 012 and application database permissions.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
+    .WithTags("Review submissions")
+    .WithSummary("Load a submitted review for authorized review")
+    .Produces<ReviewSubmission>(StatusCodes.Status200OK)
+    .Produces(StatusCodes.Status404NotFound)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapPost(
+    "/api/reviews/submissions/{submissionId:guid}/complete",
+    async (
+        Guid submissionId,
+        CompleteReviewSubmissionRequest request,
+        HttpContext httpContext,
+        IReviewSubmissionStore submissionStore,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        var errors = ReviewSubmissionValidator.Validate(request);
+        if (errors.Count > 0)
+        {
+            return Results.ValidationProblem(errors);
+        }
+
+        try
+        {
+            var submission = await submissionStore.CompleteReviewAsync(
+                submissionId,
+                user.UserId,
+                request.Findings,
+                cancellationToken);
+            return submission is null
+                ? Results.Conflict(new
+                {
+                    title = "Review response cannot be submitted",
+                    detail = "The submission may have expired, already been reviewed, or the finding list changed."
+                })
+                : Results.Ok(submission);
+        }
+        catch (SqlException exception)
+        {
+            logger.LogError(exception, "Submitting reviewer response failed for {SubmissionId}.", submissionId);
+            return Results.Problem(
+                title: "Reviewer response could not be saved",
+                detail: "Verify database migration 012 and application database permissions.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
+    .WithTags("Review submissions")
+    .WithSummary("Record a per-finding reviewer decision and lock the response")
+    .Produces<ReviewSubmission>(StatusCodes.Status200OK)
+    .Produces(StatusCodes.Status409Conflict)
+    .ProducesValidationProblem()
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 app.MapPost(
@@ -1019,6 +1940,7 @@ app.MapPost(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
     .WithTags("Reviews")
     .WithSummary("Save pilot feedback")
     .WithDescription("Creates or updates feedback for one finding in SQL Server.")
@@ -1075,6 +1997,7 @@ app.MapPost(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
     .WithTags("Reviews")
     .WithSummary("Reopen a submitted review")
     .WithDescription("Reopens all submitted feedback in a saved review for the current browser reviewer.")
@@ -1131,6 +2054,7 @@ app.MapPost(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
     .WithTags("Reviews")
     .WithSummary("Reopen submitted feedback")
     .WithDescription("Returns this review finding to the waiting state for the current browser reviewer.")
@@ -1180,6 +2104,7 @@ app.MapGet(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
     .WithTags("Reviews")
     .WithSummary("Load feedback for one saved review")
     .WithDescription("Returns this browser reviewer's submitted responses for exact findings in one saved run.")
@@ -1225,6 +2150,7 @@ app.MapGet(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
     .WithTags("Reviews")
     .WithSummary("List recent pilot feedback")
     .WithDescription("Returns a bounded list of recent team feedback.")
@@ -1282,6 +2208,7 @@ app.MapGet(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
     .WithTags("Reviews")
     .WithSummary("List waiting and closed review findings")
     .WithDescription("Lists unexpired findings and this browser reviewer's submission status.")
@@ -1316,12 +2243,17 @@ static async Task<IResult> SaveReviewAsync(
     PbipReviewResult review,
     IReviewHistoryStore historyStore,
     int retentionDays,
+    Guid uploadedByUserId,
     ILogger<Program> logger,
     CancellationToken cancellationToken)
 {
     try
     {
-        var entry = await historyStore.SaveAsync(review, retentionDays, cancellationToken);
+        var entry = await historyStore.SaveAsync(
+            review,
+            retentionDays,
+            uploadedByUserId,
+            cancellationToken);
         return Results.Ok(new SaveReviewHistoryResponse(
             entry.Summary.ReviewRunId,
             entry.Summary.ReviewedUtc,

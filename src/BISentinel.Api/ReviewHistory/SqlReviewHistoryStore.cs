@@ -18,6 +18,7 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
     public async Task<ReviewHistoryEntry> SaveAsync(
         PbipReviewResult review,
         int retentionDays,
+        Guid uploadedByUserId,
         CancellationToken cancellationToken)
     {
         var projectName = ReviewProjectName.GetBaseName(review.ProjectName);
@@ -42,9 +43,11 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
             command.CommandText = """
                 SELECT ReviewRunId, ProjectName, ReviewedUtc
                 FROM dbo.BiAgentReviewRuns WITH (UPDLOCK, HOLDLOCK)
-                WHERE ProjectName = @ProjectName
-                   OR ProjectName LIKE @VersionedNamePattern ESCAPE '~';
+                WHERE UploadedByUserId = @UploadedByUserId
+                  AND (ProjectName = @ProjectName
+                   OR ProjectName LIKE @VersionedNamePattern ESCAPE '~');
                 """;
+            command.Parameters.Add("@UploadedByUserId", SqlDbType.UniqueIdentifier).Value = uploadedByUserId;
             command.Parameters.Add("@ProjectName", SqlDbType.NVarChar, 400).Value = projectName;
             command.Parameters.Add("@VersionedNamePattern", SqlDbType.NVarChar, 410).Value =
                 EscapeLikePattern(projectName) + " (%";
@@ -199,10 +202,10 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
             command.Transaction = transaction;
             command.CommandText = """
                 INSERT INTO dbo.BiAgentReviewRuns
-                    (ReviewRunId, ProjectId, ProjectName, TablesChecked, MeasuresChecked, RelationshipsChecked,
+                    (ReviewRunId, UploadedByUserId, ProjectId, ProjectName, TablesChecked, MeasuresChecked, RelationshipsChecked,
                      ChecksRun, FindingsCount, ReviewedUtc, ExpiresUtc)
                 VALUES
-                    (@ReviewRunId, @ProjectId, @ProjectName, @TablesChecked, @MeasuresChecked, @RelationshipsChecked,
+                    (@ReviewRunId, @UploadedByUserId, @ProjectId, @ProjectName, @TablesChecked, @MeasuresChecked, @RelationshipsChecked,
                      @ChecksRun, @FindingsCount, SYSUTCDATETIME(),
                      DATEADD(day, @RetentionDays, SYSUTCDATETIME()));
 
@@ -211,6 +214,7 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
                 WHERE ReviewRunId = @ReviewRunId;
                 """;
             command.Parameters.Add("@ReviewRunId", SqlDbType.UniqueIdentifier).Value = reviewRunId;
+            command.Parameters.Add("@UploadedByUserId", SqlDbType.UniqueIdentifier).Value = uploadedByUserId;
             command.Parameters.Add("@ProjectId", SqlDbType.NVarChar, 100).Value = review.ProjectId;
             command.Parameters.Add("@ProjectName", SqlDbType.NVarChar, 400).Value = savedReview.ProjectName;
             command.Parameters.Add("@TablesChecked", SqlDbType.Int).Value = savedReview.TablesChecked;
@@ -335,6 +339,7 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
     public async Task<IReadOnlyList<ReviewHistorySummary>> GetRecentAsync(
         int limit,
         string? projectName,
+        Guid? uploadedByUserId,
         CancellationToken cancellationToken)
     {
         await using var connection = new SqlConnection(connectionString);
@@ -354,10 +359,13 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
                 FindingsCount
             FROM dbo.BiAgentReviewRuns
             WHERE ExpiresUtc > SYSUTCDATETIME()
+              AND (@UploadedByUserId IS NULL OR UploadedByUserId = @UploadedByUserId)
               AND (@ProjectName IS NULL OR ProjectName LIKE @ProjectName ESCAPE '~')
             ORDER BY ReviewedUtc DESC;
             """;
         command.Parameters.Add("@Limit", SqlDbType.Int).Value = limit;
+        command.Parameters.Add("@UploadedByUserId", SqlDbType.UniqueIdentifier).Value =
+            uploadedByUserId is null ? DBNull.Value : uploadedByUserId.Value;
         var escapedProjectName = projectName?
             .Replace("~", "~~", StringComparison.Ordinal)
             .Replace("%", "~%", StringComparison.Ordinal)
@@ -378,6 +386,7 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
 
     public async Task<ReviewHistoryEntry?> GetAsync(
         Guid reviewRunId,
+        Guid? uploadedByUserId,
         CancellationToken cancellationToken)
     {
         await using var connection = new SqlConnection(connectionString);
@@ -400,9 +409,12 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
                     r.FindingsCount
                 FROM dbo.BiAgentReviewRuns r
                 WHERE ReviewRunId = @ReviewRunId
+                  AND (@UploadedByUserId IS NULL OR UploadedByUserId = @UploadedByUserId)
                   AND ExpiresUtc > SYSUTCDATETIME();
                 """;
             command.Parameters.Add("@ReviewRunId", SqlDbType.UniqueIdentifier).Value = reviewRunId;
+            command.Parameters.Add("@UploadedByUserId", SqlDbType.UniqueIdentifier).Value =
+                uploadedByUserId is null ? DBNull.Value : uploadedByUserId.Value;
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken))
             {

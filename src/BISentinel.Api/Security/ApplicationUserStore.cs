@@ -25,6 +25,14 @@ public interface IApplicationUserStore
         bool isAdmin,
         Guid bootstrapAdminObjectId,
         CancellationToken cancellationToken);
+
+    Task<ApplicationUserRoleChangeResult> SetReviewerRoleAsync(
+        Guid tenantId,
+        Guid targetUserId,
+        Guid actorUserId,
+        string roleName,
+        bool isGranted,
+        CancellationToken cancellationToken);
 }
 
 public sealed record ApplicationUserSession(
@@ -34,6 +42,8 @@ public sealed record ApplicationUserSession(
     string DisplayName,
     string? EmailAddress,
     bool IsAdmin,
+    bool IsManager,
+    bool IsLead,
     bool IsEnabled,
     bool IsBootstrapAdmin,
     DateTimeOffset FirstSeenUtc);
@@ -44,6 +54,8 @@ public sealed record ApplicationUserSummary(
     string DisplayName,
     string? EmailAddress,
     bool IsAdmin,
+    bool IsManager,
+    bool IsLead,
     bool IsBootstrapAdmin,
     DateTimeOffset FirstSeenUtc,
     DateTimeOffset LastSeenUtc);
@@ -55,6 +67,8 @@ public sealed record ApplicationAuthSessionResponse(
     string? DisplayName,
     string? EmailAddress,
     bool IsAdmin,
+    bool IsManager,
+    bool IsLead,
     bool IsBootstrapAdmin);
 
 /// <summary>Specifies the administrator status to assign to an application user.</summary>
@@ -65,6 +79,15 @@ public sealed record SetApplicationUserAdminRequest
 
 /// <summary>Reports the application user's updated administrator status.</summary>
 public sealed record ApplicationUserAdminResponse(Guid UserId, bool IsAdmin);
+
+public sealed record SetApplicationUserReviewRoleRequest
+{
+    public required string RoleName { get; init; }
+
+    public required bool IsGranted { get; init; }
+}
+
+public sealed record ApplicationUserReviewRoleResponse(Guid UserId, string RoleName, bool IsGranted);
 
 public enum ApplicationUserRoleChangeResult
 {
@@ -195,21 +218,42 @@ public sealed class SqlApplicationUserStore(string connectionString) : IApplicat
         }
 
         bool isAdmin;
+        bool isManager;
+        bool isLead;
         await using (var command = new SqlCommand(
             """
-            SELECT CONVERT(bit, CASE WHEN EXISTS
-            (
-                SELECT 1
-                FROM dbo.BiAgentApplicationUserRoles
-                WHERE UserId = @UserId AND RoleName = N'ApplicationAdmin'
-            ) THEN 1 ELSE 0 END);
+            SELECT
+                CONVERT(bit, CASE WHEN EXISTS
+                (
+                    SELECT 1 FROM dbo.BiAgentApplicationUserRoles
+                    WHERE UserId = @UserId AND RoleName = N'ApplicationAdmin'
+                ) THEN 1 ELSE 0 END),
+                CONVERT(bit, CASE WHEN EXISTS
+                (
+                    SELECT 1 FROM dbo.BiAgentApplicationUserRoles
+                    WHERE UserId = @UserId AND RoleName = N'ReviewManager'
+                ) THEN 1 ELSE 0 END),
+                CONVERT(bit, CASE WHEN EXISTS
+                (
+                    SELECT 1 FROM dbo.BiAgentApplicationUserRoles
+                    WHERE UserId = @UserId AND RoleName = N'ReviewLead'
+                ) THEN 1 ELSE 0 END);
             """,
             connection,
             transaction))
         {
             command.Parameters.Add("@UserId", SqlDbType.UniqueIdentifier).Value = userId;
-            isAdmin = (bool)(await command.ExecuteScalarAsync(cancellationToken)
-                ?? throw new InvalidOperationException("The application user role could not be read."));
+            await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
+            {
+                if (!await reader.ReadAsync(cancellationToken))
+                {
+                    throw new InvalidOperationException("The application user roles could not be read.");
+                }
+
+                isAdmin = reader.GetBoolean(0);
+                isManager = reader.GetBoolean(1);
+                isLead = reader.GetBoolean(2);
+            }
         }
 
         await transaction.CommitAsync(cancellationToken);
@@ -220,6 +264,8 @@ public sealed class SqlApplicationUserStore(string connectionString) : IApplicat
             normalizedName,
             normalizedEmail,
             isAdmin,
+            isManager,
+            isLead,
             isEnabled,
             isBootstrapAdmin,
             firstSeenUtc);
@@ -237,10 +283,16 @@ public sealed class SqlApplicationUserStore(string connectionString) : IApplicat
             """
             SELECT u.UserId, u.EntraObjectId, u.DisplayName, u.EmailAddress, u.FirstSeenUtc,
                    u.LastSeenUtc,
-                   CONVERT(bit, CASE WHEN r.UserId IS NULL THEN 0 ELSE 1 END) AS IsAdmin
+                   CONVERT(bit, CASE WHEN adminRole.UserId IS NULL THEN 0 ELSE 1 END) AS IsAdmin,
+                   CONVERT(bit, CASE WHEN managerRole.UserId IS NULL THEN 0 ELSE 1 END) AS IsManager,
+                   CONVERT(bit, CASE WHEN leadRole.UserId IS NULL THEN 0 ELSE 1 END) AS IsLead
             FROM dbo.BiAgentApplicationUsers AS u
-            LEFT JOIN dbo.BiAgentApplicationUserRoles AS r
-              ON r.UserId = u.UserId AND r.RoleName = N'ApplicationAdmin'
+            LEFT JOIN dbo.BiAgentApplicationUserRoles AS adminRole
+              ON adminRole.UserId = u.UserId AND adminRole.RoleName = N'ApplicationAdmin'
+            LEFT JOIN dbo.BiAgentApplicationUserRoles AS managerRole
+              ON managerRole.UserId = u.UserId AND managerRole.RoleName = N'ReviewManager'
+            LEFT JOIN dbo.BiAgentApplicationUserRoles AS leadRole
+              ON leadRole.UserId = u.UserId AND leadRole.RoleName = N'ReviewLead'
             WHERE u.TenantId = @TenantId AND u.IsEnabled = 1
             ORDER BY u.DisplayName, u.EmailAddress;
             """,
@@ -254,6 +306,8 @@ public sealed class SqlApplicationUserStore(string connectionString) : IApplicat
                 reader.GetString(2),
                 reader.IsDBNull(3) ? null : reader.GetString(3),
                 reader.GetBoolean(6),
+                reader.GetBoolean(7),
+                reader.GetBoolean(8),
                 reader.GetGuid(1) == bootstrapAdminObjectId,
                 reader.GetDateTimeOffset(4),
                 reader.GetDateTimeOffset(5)));
@@ -378,6 +432,99 @@ public sealed class SqlApplicationUserStore(string connectionString) : IApplicat
             command.Parameters.Add("@IsGranted", SqlDbType.Bit).Value = isAdmin;
             command.Parameters.Add("@ActorUserId", SqlDbType.UniqueIdentifier).Value = actorUserId;
             await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await transaction.CommitAsync(cancellationToken);
+        return ApplicationUserRoleChangeResult.Updated;
+    }
+
+    public async Task<ApplicationUserRoleChangeResult> SetReviewerRoleAsync(
+        Guid tenantId,
+        Guid targetUserId,
+        Guid actorUserId,
+        string roleName,
+        bool isGranted,
+        CancellationToken cancellationToken)
+    {
+        if (roleName is not ("ReviewManager" or "ReviewLead"))
+        {
+            throw new ArgumentException("Only ReviewManager and ReviewLead roles can be assigned here.", nameof(roleName));
+        }
+
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var transaction = (SqlTransaction)await connection.BeginTransactionAsync(
+            IsolationLevel.Serializable,
+            cancellationToken);
+
+        await using (var userCommand = new SqlCommand(
+            """
+            SELECT UserId
+            FROM dbo.BiAgentApplicationUsers WITH (UPDLOCK, HOLDLOCK)
+            WHERE UserId = @TargetUserId AND TenantId = @TenantId AND IsEnabled = 1;
+            """,
+            connection,
+            transaction))
+        {
+            userCommand.Parameters.Add("@TargetUserId", SqlDbType.UniqueIdentifier).Value = targetUserId;
+            userCommand.Parameters.Add("@TenantId", SqlDbType.UniqueIdentifier).Value = tenantId;
+            if (await userCommand.ExecuteScalarAsync(cancellationToken) is null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return ApplicationUserRoleChangeResult.UserNotFound;
+            }
+        }
+
+        await using (var roleCommand = new SqlCommand(
+            isGranted
+                ? """
+                  IF NOT EXISTS
+                  (
+                      SELECT 1 FROM dbo.BiAgentApplicationUserRoles WITH (UPDLOCK, HOLDLOCK)
+                      WHERE UserId = @TargetUserId AND RoleName = @RoleName
+                  )
+                  BEGIN
+                      INSERT INTO dbo.BiAgentApplicationUserRoles
+                          (UserId, RoleName, AssignedByUserId)
+                      VALUES (@TargetUserId, @RoleName, @ActorUserId);
+                      SELECT 1;
+                  END
+                  ELSE SELECT 0;
+                  """
+                : """
+                  DELETE FROM dbo.BiAgentApplicationUserRoles
+                  WHERE UserId = @TargetUserId AND RoleName = @RoleName;
+                  SELECT @@ROWCOUNT;
+                  """,
+            connection,
+            transaction))
+        {
+            roleCommand.Parameters.Add("@TargetUserId", SqlDbType.UniqueIdentifier).Value = targetUserId;
+            roleCommand.Parameters.Add("@RoleName", SqlDbType.NVarChar, 64).Value = roleName;
+            roleCommand.Parameters.Add("@ActorUserId", SqlDbType.UniqueIdentifier).Value = actorUserId;
+            var changed = Convert.ToInt32(await roleCommand.ExecuteScalarAsync(cancellationToken)) > 0;
+            if (!changed)
+            {
+                await transaction.CommitAsync(cancellationToken);
+                return ApplicationUserRoleChangeResult.Unchanged;
+            }
+        }
+
+        await using (var auditCommand = new SqlCommand(
+            """
+            INSERT INTO dbo.BiAgentApplicationRoleAudit
+                (TargetUserId, RoleName, IsGranted, ChangedByUserId)
+            VALUES
+                (@TargetUserId, @RoleName, @IsGranted, @ActorUserId);
+            """,
+            connection,
+            transaction))
+        {
+            auditCommand.Parameters.Add("@TargetUserId", SqlDbType.UniqueIdentifier).Value = targetUserId;
+            auditCommand.Parameters.Add("@RoleName", SqlDbType.NVarChar, 64).Value = roleName;
+            auditCommand.Parameters.Add("@IsGranted", SqlDbType.Bit).Value = isGranted;
+            auditCommand.Parameters.Add("@ActorUserId", SqlDbType.UniqueIdentifier).Value = actorUserId;
+            await auditCommand.ExecuteNonQueryAsync(cancellationToken);
         }
 
         await transaction.CommitAsync(cancellationToken);

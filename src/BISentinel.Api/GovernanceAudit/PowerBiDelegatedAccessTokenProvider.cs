@@ -5,7 +5,7 @@ namespace BISentinel.Api.GovernanceAudit;
 
 public interface IPowerBiDelegatedAccessTokenProvider
 {
-    Task<string> GetAccessTokenAsync(ClaimsPrincipal user);
+    Task<string> GetAccessTokenAsync(ClaimsPrincipal user, string scope);
 }
 
 public sealed class PowerBiDelegatedAccessTokenProvider(
@@ -15,14 +15,17 @@ public sealed class PowerBiDelegatedAccessTokenProvider(
     [
         "https://analysis.windows.net/powerbi/api/Workspace.Read.All",
         "https://analysis.windows.net/powerbi/api/Report.Read.All",
-        "https://analysis.windows.net/powerbi/api/Dataset.Read.All"
+        "https://analysis.windows.net/powerbi/api/Dataset.Read.All",
+        "https://analysis.windows.net/powerbi/api/Dashboard.Read.All",
+        "https://analysis.windows.net/powerbi/api/App.Read.All",
+        "https://analysis.windows.net/powerbi/api/Tenant.Read.All"
     ]);
 
-    public async Task<string> GetAccessTokenAsync(ClaimsPrincipal user)
+    public async Task<string> GetAccessTokenAsync(ClaimsPrincipal user, string scope)
     {
         try
         {
-            return await tokenAcquisition.GetAccessTokenForUserAsync(RequiredScopes, user: user);
+            return await tokenAcquisition.GetAccessTokenForUserAsync([scope], user: user);
         }
         catch (MicrosoftIdentityWebChallengeUserException exception)
         {

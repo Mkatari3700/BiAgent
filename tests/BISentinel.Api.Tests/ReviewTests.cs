@@ -211,6 +211,83 @@ public sealed class ReviewTests
     }
 
     [Fact]
+    public void ModelUsageRules_FindPotentiallyUnusedTablesColumnsAndMeasures()
+    {
+        var project = new PbipProjectModel(
+            "Usage",
+            [],
+            [
+                new ModelTable(
+                    "FactSales",
+                    "FactSales.tmdl",
+                    [new("CustomerKey"), new("Amount"), new("UnusedFlag")],
+                    [new("Total Sales", "SUM(FactSales[Amount])")]),
+                new ModelTable("DimCustomer", "DimCustomer.tmdl", [new("CustomerKey")], []),
+                new ModelTable("FactArchive", "FactArchive.tmdl", [new("OldValue")], []),
+                new ModelTable(
+                    "Measures",
+                    "Measures.tmdl",
+                    [],
+                    [new("Unused KPI", "COUNTROWS(FactSales)")])
+            ],
+            [new("FactSales", "CustomerKey", "DimCustomer", "CustomerKey", false)],
+            ReportReferences: ["{\"entity\":\"FactSales\",\"column\":\"Amount\",\"measure\":\"Total Sales\"}"]);
+
+        var unusedTables = new UnusedTablesRule().Evaluate(project, new ReviewOptions());
+        var unusedColumns = new UnusedColumnsRule().Evaluate(project, new ReviewOptions());
+        var unusedMeasures = new UnusedMeasuresRule().Evaluate(project, new ReviewOptions());
+
+        Assert.Contains(unusedTables.Findings, finding =>
+            finding.RuleId == "OPT-001" &&
+            finding.Message == "Table is not used: FactArchive" &&
+            finding.Location == "FactArchive" &&
+            finding.Recommendation.Contains("- Relationship metadata alone does not establish that the table is consumed.", StringComparison.Ordinal));
+        Assert.Contains(unusedTables.Findings, finding =>
+            finding.RuleId == "OPT-001" &&
+            finding.Message == "Table is not used: DimCustomer" &&
+            finding.Location == "DimCustomer");
+        Assert.DoesNotContain(unusedTables.Findings, finding =>
+            finding.Message.Contains("FactSales", StringComparison.Ordinal));
+        Assert.Contains(unusedColumns.Findings, finding =>
+            finding.RuleId == "OPT-002" &&
+            finding.Message == "Column is not used: FactSales[UnusedFlag]" &&
+            finding.Location == "FactSales[UnusedFlag]");
+        Assert.DoesNotContain(unusedColumns.Findings, finding =>
+            finding.Message.Contains("CustomerKey", StringComparison.Ordinal));
+        Assert.DoesNotContain(unusedColumns.Findings, finding =>
+            finding.Message.Contains("Amount", StringComparison.Ordinal));
+        Assert.Contains(unusedMeasures.Findings, finding =>
+            finding.RuleId == "OPT-003" &&
+            finding.Message == "Measure is not used: Unused KPI (table Measures)" &&
+            finding.Location == "Measures[Unused KPI]");
+        Assert.DoesNotContain(unusedMeasures.Findings, finding =>
+            finding.Message.Contains("Total Sales", StringComparison.Ordinal));
+
+        var modelOnlyMeasures = new UnusedMeasuresRule()
+            .Evaluate(project with { ReportReferences = null }, new ReviewOptions());
+        Assert.Contains(modelOnlyMeasures.Findings, finding =>
+            finding.Recommendation.Contains("report visual usage could not be checked", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void UnusedTablesRule_AlwaysExcludesPowerBiGeneratedDateTables()
+    {
+        var project = new PbipProjectModel(
+            "GeneratedDates",
+            [],
+            [
+                new ModelTable("DateTableTemplate_abc123", "generated.tmdl", [], []),
+                new ModelTable("LocalDateTable_xyz789", "local.tmdl", [], [])
+            ],
+            []);
+        var options = new ReviewOptions { GeneratedTablePrefixes = [] };
+
+        var findings = new UnusedTablesRule().Evaluate(project, options);
+
+        Assert.Empty(findings.Findings);
+    }
+
+    [Fact]
     public void Reader_RejectsProjectReferencesOutsideConfiguredRoot()
     {
         using var fixture = new PbipFixture();
@@ -356,17 +433,23 @@ public sealed class ReviewTests
     }
 
     [Fact]
-    public void Reader_ParsesTmdlFromPbiToolsExtractedProject()
+    public async Task Reader_ParsesTmdlFromPbiToolsExtractedProject()
     {
         using var fixture = new PbiToolsFixture();
 
         var project = new PbipProjectReader().Read(fixture.Root);
+        var review = await CreateReviewer(project, fixture.Root, DefaultRules())
+            .ReviewAsync(fixture.Root, project.ProjectName, null, CancellationToken.None);
 
         Assert.Equal(Path.GetFileName(fixture.Root), project.ProjectName);
         Assert.Single(project.Tables);
         Assert.Equal("FactSales", project.Tables[0].Name);
+        Assert.Single(project.Tables[0].Columns);
+        Assert.Single(project.Tables[0].Measures);
         Assert.Contains(project.Tables[0].Measures, measure => measure.Name == "Total Sales");
         Assert.Single(project.Relationships);
+        Assert.Equal(1, review.TablesChecked);
+        Assert.Equal(1, review.RelationshipsChecked);
     }
 
     [Fact]
@@ -525,7 +608,10 @@ public sealed class ReviewTests
         new SingleDirectionRelationshipRule(),
         new ExplicitMeasuresRule(),
         new DaxDivisionRule(),
-        new DaxFormatRule()
+        new DaxFormatRule(),
+        new UnusedTablesRule(),
+        new UnusedColumnsRule(),
+        new UnusedMeasuresRule()
     ];
 
     private sealed class StubProjectReader(PbipProjectModel project) : IPbipProjectReader
@@ -665,6 +751,8 @@ public sealed class ReviewTests
             Root = Path.Combine(Path.GetTempPath(), "BISentinel.Tests", Guid.NewGuid().ToString("N"));
             var model = Path.Combine(Root, "Model");
             Directory.CreateDirectory(Path.Combine(model, "tables"));
+            var duplicateModel = Path.Combine(Root, "SemanticModel", "definition");
+            Directory.CreateDirectory(Path.Combine(duplicateModel, "tables"));
             File.WriteAllText(Path.Combine(Root, ".pbixproj.json"), "{}");
             File.WriteAllText(
                 Path.Combine(model, "tables", "FactSales.tmdl"),
@@ -681,6 +769,21 @@ public sealed class ReviewTests
                     fromColumn: FactSales.CustomerKey
                     toColumn: DimCustomer.CustomerKey
                 """);
+            File.WriteAllText(
+                    Path.Combine(duplicateModel, "tables", "FactSales.tmdl"),
+                    """
+                    table FactSales
+                        column Amount
+                        measure 'Total Sales' =
+                            SUM(FactSales[Amount])
+                    """);
+            File.WriteAllText(
+                    Path.Combine(duplicateModel, "relationships.tmdl"),
+                    """
+                    relationship rel1-copy
+                        fromColumn: DimCustomer.CustomerKey
+                        toColumn: FactSales.CustomerKey
+                    """);
         }
 
         public string Root { get; }
