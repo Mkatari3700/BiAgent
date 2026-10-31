@@ -6,6 +6,7 @@ const elements = {
   appLoadingMessage: document.querySelector("#app-loading-message"),
   topbar: document.querySelector(".topbar"),
   workspaceLayout: document.querySelector("#workspace-layout"),
+  pageContent: document.querySelector(".page"),
   workspaceLoading: document.querySelector("#workspace-loading"),
   applicationStatePage: document.querySelector("#application-state-page"),
   applicationStateTitle: document.querySelector("#application-state-title"),
@@ -19,6 +20,8 @@ const elements = {
   moduleNavigations: [...document.querySelectorAll("[data-module-navigation]")],
   moduleNavigationStatus: document.querySelector("#module-navigation-status"),
   reviewWorkspace: document.querySelector("#review-workspace"),
+  reviewPageTabs: [...document.querySelectorAll("[data-review-page-tab]")],
+  reviewPages: [...document.querySelectorAll("[data-review-page]")],
   governanceWorkspace: document.querySelector("#governance-workspace"),
   governanceScanWorkspaces: document.querySelector("#governance-scan-workspaces"),
   governanceWorkspaceNameFilter: document.querySelector("#governance-workspace-name-filter"),
@@ -137,6 +140,7 @@ const elements = {
   submissionStatus: document.querySelector("#submission-status"),
   submitReviewWorkflow: document.querySelector("#submit-review-workflow"),
   exportButton: document.querySelector("#export-feedback"),
+  exportFeedbackStatus: document.querySelector("#export-feedback-status"),
   status: document.querySelector("#status"),
   error: document.querySelector("#error"),
   reviewErrorDialog: document.querySelector("#review-error-dialog"),
@@ -246,6 +250,9 @@ let currentProject = "";
 let currentReviewRunId = "";
 let feedback = {};
 let sharedFeedbackAvailable = false;
+let feedbackAvailabilityChecked = false;
+let feedbackAvailabilityError = "";
+let feedbackAvailabilityRequest = null;
 let dashboardItems = [];
 let dashboardStatus = "Open";
 let configurationVersion = 0;
@@ -280,6 +287,9 @@ const reviewerId = loadReviewerId();
 
 elements.sidebarToggle.addEventListener("click", toggleSidebar);
 elements.applicationStateRetry.addEventListener("click", () => window.location.reload());
+for (const tab of elements.reviewPageTabs) {
+  tab.addEventListener("click", () => navigateReviewPage(tab.dataset.reviewPageTab));
+}
 for (const navigation of elements.moduleNavigations) {
   navigation.addEventListener("click", event => {
     event.preventDefault();
@@ -428,7 +438,7 @@ elements.uploadProject.addEventListener("click", uploadProject);
 elements.closeReviewError.addEventListener("click", () => elements.reviewErrorDialog.close());
 elements.openReviewResults.addEventListener("click", () => {
   elements.reviewSuccessDialog.close();
-  elements.reviewResults.scrollIntoView({ behavior: "smooth", block: "start" });
+  navigateReviewPage("results");
 });
 elements.history.addEventListener("change", loadSelectedReview);
 elements.reviewSearchForm.addEventListener("submit", searchReviewHistory);
@@ -566,6 +576,10 @@ function setWorkspaceView(view) {
   elements.workspaceLoading.hidden = true;
   const isReviews = view === "reviews";
   elements.reviewWorkspace.hidden = !isReviews;
+  if (isReviews) {
+    const requestedPage = new URLSearchParams(window.location.search).get("page");
+    setReviewPage(requestedPage || "run");
+  }
   const isGovernanceAudit = view === "governanceAudit";
   elements.governanceWorkspace.hidden = !isGovernanceAudit;
   elements.modulePlaceholder.hidden = isAdministration || isReviews || isGovernanceAudit;
@@ -717,6 +731,52 @@ function navigateGovernancePage(pageName) {
   setGovernancePage(requestedPage);
 }
 
+function navigateReviewPage(pageName) {
+  if (activeWorkspaceView !== "reviews") {
+    return;
+  }
+  const requestedPage = pageName === "results" && !currentReviewRunId ? "run" : pageName;
+  if (!elements.reviewPages.some(page => page.dataset.reviewPage === requestedPage)) {
+    return;
+  }
+
+  const query = new URLSearchParams(window.location.search);
+  if (requestedPage === "run") {
+    query.delete("page");
+  } else {
+    query.set("page", requestedPage);
+  }
+  const suffix = query.toString();
+  const url = `${window.location.pathname}${suffix ? `?${suffix}` : ""}${window.location.hash}`;
+  if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== url) {
+    window.history.pushState(null, "", url);
+  }
+  setReviewPage(requestedPage);
+}
+
+function setReviewPage(pageName) {
+  const page = pageName === "results" && !currentReviewRunId ? "run" : pageName;
+  const selectedPage = elements.reviewPages.find(item => item.dataset.reviewPage === page)
+    ?? elements.reviewPages.find(item => item.dataset.reviewPage === "run");
+  for (const section of elements.reviewPages) {
+    section.hidden = section !== selectedPage;
+  }
+  for (const tab of elements.reviewPageTabs) {
+    const isSelected = tab.dataset.reviewPageTab === selectedPage.dataset.reviewPage;
+    tab.classList.toggle("is-active", isSelected);
+    tab.disabled = tab.dataset.reviewPageTab === "results" && !currentReviewRunId;
+    if (isSelected) {
+      tab.setAttribute("aria-current", "page");
+    } else {
+      tab.removeAttribute("aria-current");
+    }
+  }
+  elements.pageContent.scrollTo({ top: 0, behavior: "smooth" });
+  if (selectedPage.dataset.reviewPage === "history") {
+    void loadDashboard();
+  }
+}
+
 function setGovernancePage(pageName) {
   const page = pageName === "results" && !currentGovernanceAudit ? "run" : pageName;
   const selectedPage = elements.governancePages.find(item => item.dataset.governancePage === page)
@@ -733,7 +793,7 @@ function setGovernancePage(pageName) {
       tab.removeAttribute("aria-current");
     }
   }
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  elements.pageContent.scrollTo({ top: 0, behavior: "smooth" });
   if (selectedPage.dataset.governancePage === "history") {
     void loadGovernanceAuditHistory();
   }
@@ -765,6 +825,7 @@ function setAdministrationTab(tabKey) {
     tab.setAttribute("aria-selected", String(isSelected));
     tab.tabIndex = isSelected ? 0 : -1;
     tab.classList.toggle("active", isSelected);
+    tab.classList.toggle("is-active", isSelected);
   }
   for (const panel of elements.adminPanels) {
     panel.hidden = panel.dataset.adminPanel !== selectedTab.dataset.adminTab;
@@ -1004,6 +1065,9 @@ async function loadAuthenticationSession() {
     applicationSession.displayName || applicationSession.emailAddress || "Signed-in user";
   elements.administrationNavigation.hidden = !applicationSession.isAdmin;
   updateExportButton();
+  if (isReviewReviewer()) {
+    void checkSharedFeedbackAvailability();
+  }
 }
 
 function renderModuleAvailability(availability) {
@@ -2201,6 +2265,7 @@ function renderGovernanceInventoryCounts(result) {
     const card = document.createElement("article");
     card.className = "governance-inventory-count";
     card.dataset.inventoryType = type;
+    card.title = `${count} ${label.toLocaleLowerCase()}`;
     const name = document.createElement("span");
     name.textContent = label;
     const value = document.createElement("strong");
@@ -2464,6 +2529,7 @@ function renderGovernanceResultCountCards(target, counts) {
     card.className = `governance-count-card governance-count-${status.toLocaleLowerCase()}`;
     card.dataset.governanceStatusLink = status === "total" ? "all" : status;
     card.setAttribute("aria-label", `Show ${label.toLocaleLowerCase()} audit results.`);
+    card.title = `Show ${label.toLocaleLowerCase()} audit results`;
     const icon = document.createElement("span");
     icon.className = "governance-count-icon";
     icon.setAttribute("aria-hidden", "true");
@@ -2477,9 +2543,9 @@ function renderGovernanceResultCountCards(target, counts) {
   }
 
   const optimizationChecks = [
-    ["OPT-001", "Potentially unused tables", "Model tables with no detected references in DAX or scanned report visuals."],
-    ["OPT-002", "Potentially unused columns", "Columns with no detected references in DAX or scanned report visuals."],
-    ["OPT-003", "Potentially unused measures", "Measures not referenced by other measures or scanned report visuals."]
+    ["OPT-001", "Unused tables", "Potentially unused tables. Model tables with no detected references in DAX or scanned report visuals."],
+    ["OPT-002", "Unused columns", "Potentially unused columns. Columns with no detected references in DAX or scanned report visuals."],
+    ["OPT-003", "Unused measures", "Potentially unused measures. Measures not referenced by other measures or scanned report visuals."]
   ];
   for (const [checkId, label, description] of optimizationChecks) {
     const checkFindings = currentGovernanceFindings.filter(finding => finding.checkId === checkId);
@@ -2500,6 +2566,7 @@ function renderGovernanceResultCountCards(target, counts) {
       "aria-label",
       `${evaluated ? candidateCount : "No count"} ${label.toLocaleLowerCase()}. View matching findings.`
     );
+    card.title = description;
     const icon = document.createElement("span");
     icon.className = "governance-count-icon";
     icon.setAttribute("aria-hidden", "true");
@@ -2508,13 +2575,10 @@ function renderGovernanceResultCountCards(target, counts) {
     count.textContent = evaluated ? String(candidateCount) : "—";
     const text = document.createElement("span");
     const coverageNote = evaluated
-      ? partialEvidence ? " · partial evidence" : ""
-      : " · evidence gap";
+      ? partialEvidence ? " · Partial" : ""
+      : " · Gap";
     text.textContent = `${label}${coverageNote}`;
-    const shortDescription = document.createElement("span");
-    shortDescription.className = "governance-count-card-description";
-    shortDescription.textContent = description;
-    card.append(icon, count, text, shortDescription);
+    card.append(icon, count, text);
     target.append(card);
   }
 }
@@ -3616,9 +3680,11 @@ async function displaySavedRuns(savedRuns, sourceName) {
   renderSummary(summary);
   renderFindings();
   elements.overview.hidden = false;
+  const resultsTab = elements.reviewPageTabs.find(tab => tab.dataset.reviewPageTab === "results");
+  resultsTab.disabled = false;
+  navigateReviewPage("results");
   elements.status.textContent =
     `Review completed successfully for ${savedRuns.length} ${savedRuns.length === 1 ? "project" : "projects"}.`;
-  elements.reviewResults.scrollIntoView({ behavior: "smooth", block: "start" });
 
   if (!isReviewReviewer()) {
     try {
@@ -3762,9 +3828,11 @@ async function loadReviewById(reviewRunId, submission = null) {
     renderSummary({ ...entry.summary, findings: currentFindings });
     renderFindings();
     elements.overview.hidden = false;
+    const resultsTab = elements.reviewPageTabs.find(tab => tab.dataset.reviewPageTab === "results");
+    resultsTab.disabled = false;
+    navigateReviewPage("results");
     elements.status.textContent =
       `Review loaded successfully · ${entry.summary.projectName} · ${currentFindings.length} findings`;
-    elements.reviewResults.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (error) {
     showError(error instanceof Error ? error.message : "Saved review could not be loaded.");
     elements.status.textContent = "Saved review could not be loaded.";
@@ -4023,7 +4091,6 @@ async function openDashboardRun(run) {
   } else {
     await loadReviewById(run.reviewRunId);
   }
-  elements.overview.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 async function reopenReview(reviewRunId) {
@@ -4538,10 +4605,49 @@ function findingKey(finding) {
 }
 
 function updateExportButton() {
-  elements.exportButton.hidden = !isReviewReviewer();
+  const isReviewer = isReviewReviewer();
+  elements.exportButton.hidden = !isReviewer;
   const hasFeedback = Object.values(feedback).some(entry =>
     entry.rating || (entry.comment && entry.comment.trim()));
   elements.exportButton.disabled = !hasFeedback && !sharedFeedbackAvailable;
+  elements.exportFeedbackStatus.hidden = !isReviewer || !elements.exportButton.disabled;
+  elements.exportFeedbackStatus.textContent = !feedbackAvailabilityChecked
+    ? "Checking for saved feedback…"
+    : feedbackAvailabilityError
+      ? `Saved feedback availability could not be checked: ${feedbackAvailabilityError}`
+      : "No reviewer feedback is available to export yet.";
+}
+
+async function checkSharedFeedbackAvailability() {
+  if (!isReviewReviewer() || feedbackAvailabilityRequest) {
+    return feedbackAvailabilityRequest;
+  }
+
+  feedbackAvailabilityChecked = false;
+  feedbackAvailabilityError = "";
+  updateExportButton();
+  feedbackAvailabilityRequest = (async () => {
+    try {
+      const response = await fetch("/api/reviews/feedback?limit=1", {
+        headers: { Accept: "application/json" }
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "Saved feedback availability could not be checked."));
+      }
+
+      const entries = await readJsonResponse(response, "Saved feedback");
+      sharedFeedbackAvailable = entries.length > 0;
+    } catch (error) {
+      feedbackAvailabilityError = error instanceof Error
+        ? error.message
+        : "Saved feedback availability could not be checked.";
+    } finally {
+      feedbackAvailabilityChecked = true;
+      feedbackAvailabilityRequest = null;
+      updateExportButton();
+    }
+  })();
+  return feedbackAvailabilityRequest;
 }
 
 async function exportFeedback() {

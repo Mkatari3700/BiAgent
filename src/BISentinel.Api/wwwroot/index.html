@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="BI Sentinel BI workspace modules">
   <title>BI Sentinel | BI Workspace</title>
-  <link rel="stylesheet" href="/auth.css?v=branded-auth-and-error-pages-1">
-  <link rel="stylesheet" href="/styles.css?v=separate-governance-audit-pages-1">
-  <script src="/app.js?v=separate-governance-audit-pages-1" defer></script>
+  <link rel="stylesheet" href="/auth.css?v=workspace-scroll-panel-1">
+  <link rel="stylesheet" href="/styles.css?v=review-toolbar-alignment-1">
+  <script src="/app.js?v=review-toolbar-alignment-1" defer></script>
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -24,10 +24,13 @@
     <symbol id="icon-filter" viewBox="0 0 16 16"><path d="M1.5 2h13L9.5 7v5l-3 2V7L1.5 2Z"/></symbol>
     <symbol id="icon-download" viewBox="0 0 16 16"><path d="M8 1.5v8m0 0 3-3m-3 3-3-3M2 10.5v3h12v-3"/></symbol>
     <symbol id="icon-upload" viewBox="0 0 16 16"><path d="M8 10V2m0 0L5 5m3-3 3 3M2 10v3h12v-3"/></symbol>
+    <symbol id="icon-sign-out" viewBox="0 0 16 16"><path d="M6 2.5H3.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1H6"/><path d="M8 8h6m0 0-2.5-2.5M14 8l-2.5 2.5"/></symbol>
     <symbol id="icon-information" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="M8 7v4M8 4.5h.01"/></symbol>
     <symbol id="icon-warning" viewBox="0 0 16 16"><path d="M7.1 1.8a1 1 0 0 1 1.8 0l6 10.7a1 1 0 0 1-.9 1.5H2a1 1 0 0 1-.9-1.5l6-10.7Z"/><path d="M8 5v4m0 2.2h.01"/></symbol>
     <symbol id="icon-check" viewBox="0 0 16 16"><circle cx="8" cy="8" r="6.5"/><path d="m4.5 8 2.2 2.2L11.8 5"/></symbol>
     <symbol id="icon-list" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="13" height="13" rx="1.5"/><path d="M5 5h6M5 8h6M5 11h4"/></symbol>
+    <symbol id="icon-users" viewBox="0 0 16 16"><circle cx="6" cy="5" r="2.5"/><path d="M1.5 14v-1a4.5 4.5 0 0 1 9 0v1h-9ZM11 3a2.2 2.2 0 0 1 0 4.3M12 9a3.5 3.5 0 0 1 2.5 3.3v1"/></symbol>
+    <symbol id="icon-workspace" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></symbol>
   </svg>
   <div id="app-loading-indicator" class="app-loading-indicator" role="status" aria-live="polite" aria-hidden="true" hidden>
     <span class="app-loading-spinner" aria-hidden="true"></span>
@@ -41,7 +44,10 @@
     <div id="account-controls" class="account-controls" hidden>
       <span id="account-name" class="account-name"></span>
       <form action="/auth/sign-out" method="post">
-        <button class="button button-secondary account-sign-out" type="submit">Sign out</button>
+        <button class="button button-secondary account-sign-out" type="submit">
+          <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-sign-out"></use></svg>
+          <span>Sign out</span>
+        </button>
       </form>
     </div>
   </header>
@@ -110,9 +116,22 @@
       </div>
     </section>
 
+    <nav id="review-page-navigation" class="governance-page-navigation" aria-label="Power BI Project Review pages">
+      <button class="governance-page-tab is-active" type="button" aria-current="page" data-review-page-tab="run">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-play"></use></svg><span>Run review</span>
+      </button>
+      <button class="governance-page-tab" type="button" data-review-page-tab="history">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-history"></use></svg><span>Review history</span>
+      </button>
+      <button class="governance-page-tab" type="button" data-review-page-tab="results" disabled>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-chart"></use></svg><span>Results</span>
+      </button>
+    </nav>
+
     <div id="status" class="status" role="status" aria-live="polite">Ready. Select a Power BI file or project ZIP to review.</div>
     <div id="error" class="error-banner" role="alert" hidden></div>
 
+    <section id="review-run-page" data-review-page="run" aria-label="Run a Power BI project review">
     <section class="project-intake" aria-labelledby="project-intake-title">
       <div class="section-heading">
         <div>
@@ -138,6 +157,7 @@
       </div>
       <p class="intake-note">Uploads are limited to 500 MB and ZIPs are expanded temporarily with file-count, size, and path-traversal checks; temporary files are removed after review. Only review summaries, findings, and submitted feedback are persisted to SQL.</p>
     </section>
+    </section>
 
     <dialog id="review-error-dialog" class="review-error-dialog" aria-labelledby="review-error-title">
       <div class="review-error-content">
@@ -157,6 +177,7 @@
       </div>
     </dialog>
 
+    <section id="review-history-page" data-review-page="history" aria-label="Saved review history" hidden>
     <section class="history-picker" aria-label="Saved review history">
       <div class="history-heading">
         <h2>Search saved reviews</h2>
@@ -205,7 +226,9 @@
       </div>
       <p id="dashboard-empty" class="dashboard-empty" hidden>No findings in this queue.</p>
     </section>
+    </section>
 
+    <section id="review-results-page" data-review-page="results" aria-label="Power BI project review results" hidden>
     <section id="overview" class="overview" aria-label="Review summary" hidden>
       <div class="summary-card summary-project">
         <span class="summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3.5 7.5h7l2 2h8v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-11Z"/><path d="M3.5 7.5v-2a2 2 0 0 1 2-2h4l2 2h5"/></svg></span>
@@ -245,8 +268,9 @@
           <p class="eyebrow">REVIEW RESULTS</p>
           <h2 id="findings-title">Findings</h2>
         </div>
-        <button id="export-feedback" class="button button-secondary" type="button" disabled><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4"/></svg>Export feedback</button>
+        <button id="export-feedback" class="button button-secondary" type="button" aria-describedby="export-feedback-status" disabled><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4"/></svg>Export feedback</button>
       </div>
+      <p id="export-feedback-status" class="export-feedback-status" role="status" aria-live="polite" hidden></p>
 
       <div id="finding-category-tabs" class="finding-category-tabs" role="tablist" aria-label="Finding categories">
         <button class="finding-category-tab" type="button" role="tab" aria-selected="true" data-finding-category="all">
@@ -304,6 +328,7 @@
       <span class="privacy-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-8h.01"/></svg></span>
       <p><strong>Review history and submitted feedback are saved to the configured SQL database.</strong> Feedback stays in Waiting until you select Submit feedback; a submitted response can be reopened. The run dashboard closes a review when all its findings are submitted. Linked feedback follows the review history retention period (30 days for this pilot). Unsubmitted changes are kept only in this page session; use Export feedback before leaving if SQL is unavailable. The generated reviewer ID identifies this browser only; it is not company sign-in.</p>
     </aside>
+    </section>
     </div>
     <section id="module-placeholder" class="module-placeholder" aria-labelledby="module-placeholder-title" hidden>
       <p id="module-placeholder-eyebrow" class="eyebrow"></p>
@@ -448,9 +473,9 @@
         <section class="configuration-card governance-results-overview" aria-labelledby="governance-results-title">
           <div class="governance-results-heading">
             <h2 id="governance-results-title">Audit results</h2>
-            <button id="export-governance-audit" class="button button-secondary" type="button" disabled>
+            <button id="export-governance-audit" class="button button-secondary" type="button" aria-label="Export Excel workbook" title="Export Excel workbook" disabled>
               <svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11m0 0 4-4m-4 4-4-4M5 16v4h14v-4"/></svg>
-              Export Excel workbook
+              <span>Export</span>
             </button>
           </div>
           <p id="governance-result-summary" class="dashboard-description"></p>
@@ -588,16 +613,16 @@
         <span id="configuration-updated"></span>
       </div>
 
-      <nav class="admin-tabs" role="tablist" aria-label="Administration settings by module">
-        <a id="admin-tab-workspace" class="admin-tab" href="/admin/workspace" role="tab" data-admin-tab="workspace" aria-controls="admin-panel-workspace">Workspace</a>
-        <a id="admin-tab-reviews" class="admin-tab" href="/admin/reviews" role="tab" data-admin-tab="reviews" aria-controls="admin-panel-reviews">Power BI Project Review</a>
-        <a id="admin-tab-governance" class="admin-tab" href="/admin/governance-audit" role="tab" data-admin-tab="governanceAudit" aria-controls="admin-panel-governanceAudit">Governance Audit</a>
-        <a id="admin-tab-performance" class="admin-tab" href="/admin/performance-optimization" role="tab" data-admin-tab="performanceOptimization" aria-controls="admin-panel-performanceOptimization">Performance Optimization</a>
-        <a id="admin-tab-release" class="admin-tab" href="/admin/release-readiness" role="tab" data-admin-tab="releaseReadiness" aria-controls="admin-panel-releaseReadiness">Release Readiness</a>
-        <a id="admin-tab-documentation" class="admin-tab" href="/admin/documentation-generator" role="tab" data-admin-tab="documentationGenerator" aria-controls="admin-panel-documentationGenerator">Documentation Generator</a>
-        <a id="admin-tab-architecture" class="admin-tab" href="/admin/architecture-review" role="tab" data-admin-tab="architectureReview" aria-controls="admin-panel-architectureReview">Architecture Review</a>
-        <a id="admin-tab-delivery" class="admin-tab" href="/admin/bi-delivery-manager" role="tab" data-admin-tab="biDeliveryManager" aria-controls="admin-panel-biDeliveryManager">BI Delivery Manager</a>
-        <a id="admin-tab-users" class="admin-tab" href="/admin/users" role="tab" data-admin-tab="applicationUsers" aria-controls="admin-panel-applicationUsers">Users &amp; access</a>
+      <nav class="admin-tabs governance-page-navigation" role="tablist" aria-label="Administration settings by module">
+        <a id="admin-tab-workspace" class="admin-tab governance-page-tab" href="/admin/workspace" role="tab" data-admin-tab="workspace" aria-controls="admin-panel-workspace"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-workspace"></use></svg><span>Workspace</span></a>
+        <a id="admin-tab-reviews" class="admin-tab governance-page-tab" href="/admin/reviews" role="tab" data-admin-tab="reviews" aria-controls="admin-panel-reviews"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-review"></use></svg><span>Power BI Project Review</span></a>
+        <a id="admin-tab-governance" class="admin-tab governance-page-tab" href="/admin/governance-audit" role="tab" data-admin-tab="governanceAudit" aria-controls="admin-panel-governanceAudit"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-shield"></use></svg><span>Governance Audit</span></a>
+        <a id="admin-tab-performance" class="admin-tab governance-page-tab" href="/admin/performance-optimization" role="tab" data-admin-tab="performanceOptimization" aria-controls="admin-panel-performanceOptimization"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-speedometer"></use></svg><span>Performance Optimization</span></a>
+        <a id="admin-tab-release" class="admin-tab governance-page-tab" href="/admin/release-readiness" role="tab" data-admin-tab="releaseReadiness" aria-controls="admin-panel-releaseReadiness"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-list-check"></use></svg><span>Release Readiness</span></a>
+        <a id="admin-tab-documentation" class="admin-tab governance-page-tab" href="/admin/documentation-generator" role="tab" data-admin-tab="documentationGenerator" aria-controls="admin-panel-documentationGenerator"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-document"></use></svg><span>Documentation Generator</span></a>
+        <a id="admin-tab-architecture" class="admin-tab governance-page-tab" href="/admin/architecture-review" role="tab" data-admin-tab="architectureReview" aria-controls="admin-panel-architectureReview"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-diagram"></use></svg><span>Architecture Review</span></a>
+        <a id="admin-tab-delivery" class="admin-tab governance-page-tab" href="/admin/bi-delivery-manager" role="tab" data-admin-tab="biDeliveryManager" aria-controls="admin-panel-biDeliveryManager"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-play"></use></svg><span>BI Delivery Manager</span></a>
+        <a id="admin-tab-users" class="admin-tab governance-page-tab" href="/admin/users" role="tab" data-admin-tab="applicationUsers" aria-controls="admin-panel-applicationUsers"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-users"></use></svg><span>Users &amp; access</span></a>
       </nav>
 
       <form id="configuration-form">
@@ -756,12 +781,11 @@
         </div>
       </form>
     </section>
+    <footer>
+      <span>BI Sentinel · BI workspace</span>
+      <span>Review results do not modify your Power BI project.</span>
+    </footer>
     </main>
   </div>
-
-  <footer>
-    <span>BI Sentinel · BI workspace</span>
-    <span>Review results do not modify your Power BI project.</span>
-  </footer>
 </body>
 </html>
