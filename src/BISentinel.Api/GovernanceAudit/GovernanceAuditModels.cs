@@ -32,7 +32,8 @@ public sealed record GovernanceArtifact(
     string? DatasetId,
     string? ConfiguredBy,
     string? WebUrl,
-    string? Status = null);
+    string? Status = null,
+    string? GatewayType = null);
 
 public sealed record GovernanceReportConnection(
     Guid ReportId,

@@ -374,6 +374,15 @@
           </div>
         </section>
       </div>
+      <details id="governance-history-panel" class="configuration-card governance-result-aux">
+        <summary>Audit history</summary>
+        <p class="dashboard-description">Open a saved audit snapshot to review its findings and inventory.</p>
+        <div class="dashboard-table-wrap"><table class="dashboard-table">
+          <thead><tr><th>Completed</th><th>Scanned by</th><th>Workspaces</th><th>Reports</th><th>Dashboards</th><th>Semantic models</th><th>Apps</th><th>Gateways</th><th>Findings</th><th>Action</th></tr></thead>
+          <tbody id="governance-history-rows"></tbody>
+        </table></div>
+        <p id="governance-history-empty" class="dashboard-empty" hidden>No saved Governance Audit runs yet.</p>
+      </details>
       <div id="governance-results" hidden>
         <section class="configuration-card governance-results-overview" aria-labelledby="governance-results-title">
           <div class="governance-results-heading">
@@ -384,25 +393,36 @@
             </button>
           </div>
           <p id="governance-result-summary" class="dashboard-description"></p>
+          <div id="governance-inventory-counts" class="governance-inventory-counts" aria-label="Audit inventory summary"></div>
           <div id="governance-result-counts" class="governance-result-counts"></div>
         </section>
-        <section class="configuration-card">
-          <h2>Findings</h2>
-          <p class="dashboard-description">Start with items that need review. Expand a check or finding only when you need its evidence and rule details.</p>
-          <nav id="governance-finding-filters" class="governance-finding-filters" aria-label="Filter audit findings">
-            <button class="governance-finding-filter is-active" type="button" aria-pressed="true" data-governance-finding-filter="all">All <span data-governance-finding-count="all">0</span></button>
-            <button class="governance-finding-filter" type="button" aria-pressed="false" data-governance-finding-filter="FAIL">Needs review <span data-governance-finding-count="FAIL">0</span></button>
-            <button class="governance-finding-filter" type="button" aria-pressed="false" data-governance-finding-filter="INSUFFICIENT_EVIDENCE">Evidence gaps <span data-governance-finding-count="INSUFFICIENT_EVIDENCE">0</span></button>
-            <button class="governance-finding-filter" type="button" aria-pressed="false" data-governance-finding-filter="EXCEPTION_APPROVED">Exceptions <span data-governance-finding-count="EXCEPTION_APPROVED">0</span></button>
-            <button class="governance-finding-filter" type="button" aria-pressed="false" data-governance-finding-filter="PASS">Passed <span data-governance-finding-count="PASS">0</span></button>
-          </nav>
-          <p id="governance-finding-scope" class="governance-finding-scope" hidden>
-            <span id="governance-finding-scope-label"></span>
-            <button id="clear-governance-finding-scope" type="button">Show all findings</button>
-          </p>
-          <div id="governance-finding-list" class="governance-finding-list"></div>
-          <p id="governance-no-findings" class="dashboard-empty" hidden>No check results were returned for this scan.</p>
-        </section>
+        <div class="governance-results-layout">
+          <aside id="governance-result-filters-panel" class="governance-result-filters-panel" aria-labelledby="governance-result-filters-title">
+            <div class="governance-result-filters-heading">
+              <span class="governance-result-filters-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 5h16M7 12h10m-7 7h4"/><circle cx="8" cy="5" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="11" cy="19" r="1.5"/></svg></span>
+              <div><h2 id="governance-result-filters-title">Filters</h2><p id="governance-result-filter-summary" role="status" aria-live="polite">All audit data shown</p></div>
+            </div>
+            <button id="governance-result-filter-toggle" class="button button-secondary governance-result-filter-toggle" type="button">Clear all</button>
+            <div id="governance-result-facets" class="governance-result-facets"></div>
+          </aside>
+          <div id="governance-results-content" class="governance-results-content">
+            <section class="configuration-card">
+              <h2>Findings</h2>
+              <p class="dashboard-description">Start with items that need review. Expand a check or finding only when you need its evidence and rule details.</p>
+              <nav id="governance-finding-filters" class="governance-finding-filters" aria-label="Filter audit findings">
+                <button class="governance-finding-filter is-active" type="button" aria-pressed="true" data-governance-finding-filter="all">All <span data-governance-finding-count="all">0</span></button>
+                <button class="governance-finding-filter" type="button" aria-pressed="false" data-governance-finding-filter="FAIL">Needs review <span data-governance-finding-count="FAIL">0</span></button>
+                <button class="governance-finding-filter" type="button" aria-pressed="false" data-governance-finding-filter="INSUFFICIENT_EVIDENCE">Evidence gaps <span data-governance-finding-count="INSUFFICIENT_EVIDENCE">0</span></button>
+                <button class="governance-finding-filter" type="button" aria-pressed="false" data-governance-finding-filter="EXCEPTION_APPROVED">Exceptions <span data-governance-finding-count="EXCEPTION_APPROVED">0</span></button>
+                <button class="governance-finding-filter" type="button" aria-pressed="false" data-governance-finding-filter="PASS">Passed <span data-governance-finding-count="PASS">0</span></button>
+              </nav>
+              <p id="governance-finding-scope" class="governance-finding-scope" hidden>
+                <span id="governance-finding-scope-label"></span>
+                <button id="clear-governance-finding-scope" type="button">Show all findings</button>
+              </p>
+              <div id="governance-finding-list" class="governance-finding-list"></div>
+              <p id="governance-no-findings" class="dashboard-empty" hidden>No check results were returned for this scan.</p>
+            </section>
         <details class="governance-result-aux">
           <summary>Workspace overview</summary>
           <div class="dashboard-table-wrap"><table class="dashboard-table">
@@ -418,10 +438,19 @@
           </table></div>
         </details>
         <details class="governance-result-aux">
-          <summary>Report data connections and gateway status</summary>
-          <p class="dashboard-description">Connection health is inferred from the latest semantic model refresh: Online means it completed and Offline means it failed. This is historical evidence, not a live source test. Gateway status comes from Power BI; Unknown means Power BI did not return a definitive state.</p>
+          <summary>Gateway inventory</summary>
+          <p class="dashboard-description">Power BI returns gateways administered by the signed-in user. Gateway status is provided by Power BI.</p>
           <div class="dashboard-table-wrap"><table class="dashboard-table">
-            <thead><tr><th>Workspace</th><th>Report</th><th>Semantic model</th><th>Source</th><th>Connection</th><th>Connection status</th><th>Gateway status</th></tr></thead>
+            <thead><tr><th>Gateway</th><th>Type</th><th>Status</th></tr></thead>
+            <tbody id="governance-gateway-rows"></tbody>
+          </table></div>
+          <p id="governance-gateway-empty" class="dashboard-empty" hidden>No gateways were returned for this account.</p>
+        </details>
+        <details class="governance-result-aux">
+          <summary>Report data connections</summary>
+          <p class="dashboard-description">Connection health is inferred from the latest semantic model refresh: Online means it completed and Offline means it failed. This is historical evidence, not a live source test.</p>
+          <div class="dashboard-table-wrap"><table class="dashboard-table">
+            <thead><tr><th>Workspace</th><th>Report</th><th>Semantic model</th><th>Source</th><th>Gateway</th><th>Connection status</th></tr></thead>
             <tbody id="governance-connection-rows"></tbody>
           </table></div>
         </details>
@@ -432,14 +461,8 @@
             <tbody id="governance-artifact-rows"></tbody>
           </table></div>
         </details>
-        <details class="governance-result-aux">
-          <summary>Recent audit runs</summary>
-          <div class="dashboard-table-wrap"><table class="dashboard-table">
-            <thead><tr><th>Completed</th><th>Scanned by</th><th>Workspaces</th><th>Reports</th><th>Dashboards</th><th>Semantic models</th><th>Apps</th><th>Gateways</th><th>Findings</th><th>Action</th></tr></thead>
-            <tbody id="governance-history-rows"></tbody>
-          </table></div>
-          <p id="governance-history-empty" class="dashboard-empty" hidden>No saved Governance Audit runs yet.</p>
-        </details>
+          </div>
+        </div>
       </div>
     </section>
     <dialog id="governance-scan-confirmation" class="review-success-dialog" aria-labelledby="governance-scan-confirmation-title">

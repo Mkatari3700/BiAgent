@@ -143,9 +143,9 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
             await using var command = new SqlCommand(
                 """
                 INSERT INTO dbo.BiAgentGovernanceAuditRunGlobalArtifacts
-                    (RunId, ArtifactId, ArtifactName, ArtifactType, ConfiguredBy, Status)
+                    (RunId, ArtifactId, ArtifactName, ArtifactType, ConfiguredBy, Status, GatewayType)
                 VALUES
-                    (@RunId, @ArtifactId, @ArtifactName, @ArtifactType, @ConfiguredBy, @Status);
+                    (@RunId, @ArtifactId, @ArtifactName, @ArtifactType, @ConfiguredBy, @Status, @GatewayType);
                 """,
                 connection,
                 transaction);
@@ -157,6 +157,8 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
                 (object?)artifact.ConfiguredBy ?? DBNull.Value;
             command.Parameters.Add("@Status", SqlDbType.NVarChar, 100).Value =
                 (object?)artifact.Status ?? DBNull.Value;
+            command.Parameters.Add("@GatewayType", SqlDbType.NVarChar, 100).Value =
+                (object?)artifact.GatewayType ?? DBNull.Value;
             await command.ExecuteNonQueryAsync(cancellationToken);
         }
 
@@ -444,7 +446,7 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
         var globalArtifacts = new List<GovernanceArtifact>();
         await using (var command = new SqlCommand(
             """
-            SELECT ArtifactId, ArtifactName, ArtifactType, ConfiguredBy, Status
+            SELECT ArtifactId, ArtifactName, ArtifactType, ConfiguredBy, Status, GatewayType
             FROM dbo.BiAgentGovernanceAuditRunGlobalArtifacts
             WHERE RunId = @RunId;
             """,
@@ -461,7 +463,8 @@ public sealed class SqlGovernanceAuditHistoryStore(string connectionString) : IG
                     null,
                     reader.IsDBNull(3) ? null : reader.GetString(3),
                     null,
-                    reader.IsDBNull(4) ? null : reader.GetString(4)));
+                    reader.IsDBNull(4) ? null : reader.GetString(4),
+                    reader.IsDBNull(5) ? null : reader.GetString(5)));
             }
         }
 

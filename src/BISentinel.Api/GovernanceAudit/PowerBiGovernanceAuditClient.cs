@@ -147,7 +147,8 @@ public sealed class PowerBiGovernanceAuditClient(
             null,
             null,
             null,
-            NormalizeGatewayStatus(gateway.GatewayStatus))).ToArray();
+            NormalizeGatewayStatus(gateway.GatewayStatus),
+            NormalizeGatewayType(gateway.Type))).ToArray();
     }
 
     public async Task<GovernanceAuditResult> ScanAsync(
@@ -1351,6 +1352,13 @@ public sealed class PowerBiGovernanceAuditClient(
                 : string.Equals(status.Trim(), "Offline", StringComparison.OrdinalIgnoreCase)
                     ? "Offline"
                     : "Unknown";
+
+    private static string NormalizeGatewayType(string? type) =>
+        string.IsNullOrWhiteSpace(type)
+            ? "Unknown"
+            : string.Equals(type.Trim(), "Resource", StringComparison.OrdinalIgnoreCase)
+                ? "On-premises"
+                : type.Trim();
 
     private static string? GetSafeConnectionDetails(JsonElement? connectionDetails)
     {

@@ -480,6 +480,7 @@ public sealed class GovernanceAuditTests
         Assert.Equal("Owner", result.Apps[0].ConfiguredBy);
         Assert.Equal("Finance Gateway", Assert.Single(result.Gateways).Name);
         Assert.Equal("Online", result.Gateways[0].Status);
+        Assert.Equal("On-premises", result.Gateways[0].GatewayType);
     }
 
     [Fact]

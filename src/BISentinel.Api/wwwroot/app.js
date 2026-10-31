@@ -41,7 +41,11 @@ const elements = {
   governanceError: document.querySelector("#governance-error"),
   governanceResults: document.querySelector("#governance-results"),
   governanceResultSummary: document.querySelector("#governance-result-summary"),
+  governanceInventoryCounts: document.querySelector("#governance-inventory-counts"),
   governanceResultCounts: document.querySelector("#governance-result-counts"),
+  governanceResultFacets: document.querySelector("#governance-result-facets"),
+  governanceResultFilterSummary: document.querySelector("#governance-result-filter-summary"),
+  governanceResultFilterToggle: document.querySelector("#governance-result-filter-toggle"),
   governanceFindingFilters: [...document.querySelectorAll("[data-governance-finding-filter]")],
   governanceFindingScope: document.querySelector("#governance-finding-scope"),
   governanceFindingScopeLabel: document.querySelector("#governance-finding-scope-label"),
@@ -65,6 +69,8 @@ const elements = {
   cancelGovernanceException: document.querySelector("#cancel-governance-exception"),
   submitGovernanceException: document.querySelector("#submit-governance-exception"),
   governanceWorkspaceRows: document.querySelector("#governance-workspace-rows"),
+  governanceGatewayRows: document.querySelector("#governance-gateway-rows"),
+  governanceGatewayEmpty: document.querySelector("#governance-gateway-empty"),
   governanceNoFindings: document.querySelector("#governance-no-findings"),
   governanceAccessRows: document.querySelector("#governance-access-rows"),
   governanceConnectionRows: document.querySelector("#governance-connection-rows"),
@@ -250,6 +256,7 @@ let governancePowerBiAuthorized = null;
 let governanceFindingFilter = "all";
 let governanceFindingCheckFilter = "";
 let currentGovernanceFindings = [];
+let currentGovernanceAudit = null;
 let currentGovernanceRunId = "";
 let governanceExceptionTarget = null;
 let currentSubmission = null;
@@ -338,6 +345,15 @@ elements.openGovernanceResults.addEventListener("click", () => {
 });
 elements.governanceResultCounts.addEventListener("click", handleGovernanceResultCardClick);
 elements.governanceResultsDialogCounts.addEventListener("click", handleGovernanceResultCardClick);
+elements.governanceResultFacets.addEventListener("change", applyGovernanceResultFilters);
+elements.governanceResultFilterToggle.addEventListener("click", () => {
+  const checkboxes = [...elements.governanceResultFacets.querySelectorAll("input[type=checkbox]")];
+  const clearFilters = elements.governanceResultFilterToggle.textContent === "Clear filters";
+  for (const checkbox of checkboxes) {
+    checkbox.checked = clearFilters;
+  }
+  applyGovernanceResultFilters();
+});
 elements.clearGovernanceFindingScope.addEventListener("click", () => {
   governanceFindingCheckFilter = "";
   renderGovernanceFindingList();
@@ -1890,11 +1906,12 @@ async function executeGovernanceScan({
 }
 
 function renderGovernanceAudit(result) {
+  currentGovernanceAudit = result;
   elements.governanceWorkspaceRows.replaceChildren();
+  elements.governanceGatewayRows.replaceChildren();
   elements.governanceAccessRows.replaceChildren();
   elements.governanceConnectionRows.replaceChildren();
   elements.governanceArtifactRows.replaceChildren();
-  elements.governanceHistoryRows.replaceChildren();
 
   currentGovernanceRunId = result.runId || "";
   currentGovernanceFindings = result.findings || [];
@@ -1909,6 +1926,8 @@ function renderGovernanceAudit(result) {
   elements.governanceResultSummary.textContent =
     `${result.workspaces.length} workspaces · ${reportCount} reports · ${dashboardCount} dashboards · ${semanticModelCount} semantic models` +
     (appCount || gatewayCount ? ` · ${appCount} apps · ${gatewayCount} gateways` : "");
+  renderGovernanceInventoryCounts(result);
+  renderGovernanceResultFacets(result);
   const counts = getGovernanceFindingCounts(currentGovernanceFindings);
   renderGovernanceResultCountCards(elements.governanceResultCounts, counts);
   governanceFindingFilter = "all";
@@ -1917,8 +1936,6 @@ function renderGovernanceAudit(result) {
     filter.classList.toggle("is-active", selected);
     filter.setAttribute("aria-pressed", String(selected));
   }
-  renderGovernanceFindingList();
-
   for (const audit of result.workspaces) {
     const workspace = audit.workspace;
     const accessCounts = new Map();
@@ -1936,7 +1953,7 @@ function renderGovernanceAudit(result) {
       (audit.dashboards || []).length,
       audit.semanticModels.length,
       accessSummary
-    ]);
+    ], { workspaceId: workspace.id });
 
     for (const user of audit.users || []) {
       appendGovernanceRow(elements.governanceAccessRows, [
@@ -1945,51 +1962,307 @@ function renderGovernanceAudit(result) {
         user.emailAddress || user.identifier,
         user.principalType,
         user.accessRight
-      ]);
+      ], {
+        workspaceId: workspace.id,
+        principalType: user.principalType,
+        accessRole: user.accessRight
+      });
     }
 
     for (const artifact of [...audit.reports, ...audit.semanticModels, ...(audit.dashboards || [])]) {
+      const reportIds = artifact.type === "Report"
+        ? [artifact.id]
+        : audit.reports
+          .filter(report => report.datasetId?.toLocaleLowerCase() === artifact.id.toLocaleLowerCase())
+          .map(report => report.id);
       appendGovernanceRow(elements.governanceArtifactRows, [
         workspace.name,
         artifact.type,
         artifact.name,
         artifact.configuredBy || "Not returned by Power BI",
         artifact.status || "—"
-      ]);
+      ], {
+        workspaceId: workspace.id,
+        artifactId: artifact.id,
+        artifactType: artifact.type,
+        reportIds
+      });
     }
 
     for (const item of audit.reportConnections || []) {
       reportConnectionCount++;
+      const gatewayName = item.gatewayId
+        ? (result.gateways || []).find(gateway =>
+          gateway.id.toLocaleLowerCase() === item.gatewayId.toLocaleLowerCase())?.name ||
+          ((result.gateways || []).length > 0 ? "Gateway not in inventory" : "Gateway inventory not selected")
+        : "No gateway";
       appendGovernanceRow(elements.governanceConnectionRows, [
         workspace.name,
         item.reportName,
         item.semanticModelName || "Not returned",
         item.sourceType || "Not returned",
-        item.connectionDetails || "Details not returned",
-        renderGovernanceHealthStatus(item.status, item.statusDetail),
-        renderGovernanceHealthStatus(item.gatewayStatus, item.gatewayStatusDetail)
-      ]);
+        gatewayName,
+        renderGovernanceHealthStatus(item.status, item.statusDetail)
+      ], {
+        workspaceId: workspace.id,
+        reportId: item.reportId,
+        reportIds: [item.reportId],
+        artifactType: "Report",
+        sourceType: item.sourceType,
+        gatewayName
+      });
     }
   }
+
+  for (const gateway of result.gateways || []) {
+    appendGovernanceRow(elements.governanceGatewayRows, [
+      gateway.name,
+      gateway.gatewayType || "Unknown",
+      gateway.status || "Unknown"
+    ], {
+      artifactId: gateway.id,
+      artifactType: "Gateway",
+      gatewayName: gateway.name
+    });
+  }
+  elements.governanceGatewayEmpty.hidden = (result.gateways || []).length > 0;
 
   if (reportConnectionCount === 0) {
     appendGovernanceRow(elements.governanceConnectionRows, [
       "No report connection details were collected for this run.",
-      "", "", "", "", "", ""
+      "", "", "", "", ""
     ]);
   }
 
   for (const artifact of [...(result.apps || []), ...(result.gateways || [])]) {
+    if (artifact.type === "Gateway") {
+      continue;
+    }
     appendGovernanceRow(elements.governanceArtifactRows, [
       "Account-level",
       artifact.type,
       artifact.name,
       artifact.configuredBy || "Not returned by Power BI",
       artifact.status || "—"
-    ]);
+    ], {
+      artifactId: artifact.id,
+      artifactType: artifact.type
+    });
   }
 
   elements.governanceNoFindings.hidden = currentGovernanceFindings.length > 0;
+  applyGovernanceResultFilters();
+}
+
+function renderGovernanceInventoryCounts(result) {
+  const counts = [
+    ["Workspaces", result.workspaces.length, "workspace"],
+    ["Reports", result.workspaces.reduce((total, audit) => total + audit.reports.length, 0), "Report"],
+    ["Dashboards", result.workspaces.reduce((total, audit) => total + (audit.dashboards || []).length, 0), "Dashboard"],
+    ["Semantic models", result.workspaces.reduce((total, audit) => total + audit.semanticModels.length, 0), "Semantic model"],
+    ["Apps", (result.apps || []).length, "App"],
+    ["Gateways", (result.gateways || []).length, "Gateway"]
+  ];
+  elements.governanceInventoryCounts.replaceChildren();
+  for (const [label, count, type] of counts) {
+    const card = document.createElement("article");
+    card.className = "governance-inventory-count";
+    card.dataset.inventoryType = type;
+    const name = document.createElement("span");
+    name.textContent = label;
+    const value = document.createElement("strong");
+    value.dataset.inventoryCount = "";
+    value.textContent = String(count);
+    card.append(name, value);
+    elements.governanceInventoryCounts.append(card);
+  }
+}
+
+function renderGovernanceResultFacets(result) {
+  const facets = [
+    {
+      key: "workspaceId",
+      title: "Workspaces",
+      values: result.workspaces.map(audit => ({
+        value: audit.workspace.id,
+        label: audit.workspace.name
+      }))
+    },
+    {
+      key: "reportIds",
+      title: "Reports",
+      values: result.workspaces.flatMap(audit => audit.reports.map(report => ({
+        value: report.id,
+        label: `${report.name} · ${audit.workspace.name}`
+      })))
+    },
+    {
+      key: "artifactType",
+      title: "Type",
+      values: [
+        ...result.workspaces.flatMap(audit =>
+          [...audit.reports, ...audit.semanticModels, ...(audit.dashboards || [])]
+            .map(artifact => ({ value: artifact.type, label: artifact.type }))),
+        ...(result.apps || []).map(artifact => ({ value: artifact.type, label: artifact.type })),
+        ...(result.gateways || []).map(artifact => ({ value: artifact.type, label: artifact.type }))
+      ]
+    },
+    {
+      key: "tableName",
+      title: "Tables",
+      values: currentGovernanceFindings
+        .filter(finding => finding.checkId === "OPT-001" && finding.artifactName)
+        .map(finding => ({ value: finding.artifactName, label: finding.artifactName }))
+    }
+  ];
+
+  elements.governanceResultFacets.replaceChildren();
+  for (const facet of facets) {
+    const values = [...new Map(facet.values.map(item => [item.value, item])).values()]
+      .sort((left, right) => left.label.localeCompare(right.label));
+    if (values.length === 0) {
+      continue;
+    }
+
+    const fieldset = document.createElement("fieldset");
+    fieldset.className = "governance-result-facet";
+    const legend = document.createElement("legend");
+    legend.textContent = facet.title;
+    fieldset.append(legend);
+    const options = document.createElement("div");
+    options.className = "governance-result-facet-options";
+    for (const option of values) {
+      const label = document.createElement("label");
+      label.className = "governance-result-facet-option";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = true;
+      checkbox.dataset.resultFacet = facet.key;
+      checkbox.value = option.value;
+      const text = document.createElement("span");
+      text.textContent = option.label;
+      label.append(checkbox, text);
+      options.append(label);
+    }
+    fieldset.append(options);
+    elements.governanceResultFacets.append(fieldset);
+  }
+}
+
+function getGovernanceResultFacetState() {
+  const options = new Map();
+  const selections = new Map();
+  for (const checkbox of elements.governanceResultFacets.querySelectorAll("input[data-result-facet]")) {
+    const key = checkbox.dataset.resultFacet;
+    if (!options.has(key)) {
+      options.set(key, 0);
+      selections.set(key, new Set());
+    }
+    options.set(key, options.get(key) + 1);
+    if (checkbox.checked) {
+      selections.get(key).add(checkbox.value);
+    }
+  }
+  return { options, selections };
+}
+
+function governanceFacetMatches(key, value, state) {
+  if (!value || !state.options.has(key)) {
+    return true;
+  }
+  return state.selections.get(key).has(value);
+}
+
+function governanceReportFacetMatches(reportIds, state) {
+  if (!state.options.has("reportIds") || !reportIds || reportIds.length === 0) {
+    return true;
+  }
+  const selectedIds = new Set(
+    [...state.selections.get("reportIds")].map(reportId => reportId.toLocaleLowerCase())
+  );
+  return reportIds.some(reportId => selectedIds.has(reportId.toLocaleLowerCase()));
+}
+
+function getGovernanceFindingReportIds(finding) {
+  if (!finding.artifactId || !currentGovernanceAudit) {
+    return [];
+  }
+  const reportIds = [];
+  for (const audit of currentGovernanceAudit.workspaces) {
+    for (const report of audit.reports) {
+      if (report.id.toLocaleLowerCase() === finding.artifactId.toLocaleLowerCase() ||
+          report.datasetId?.toLocaleLowerCase() === finding.artifactId.toLocaleLowerCase()) {
+        reportIds.push(report.id);
+      }
+    }
+  }
+  return reportIds;
+}
+
+function getGovernanceFacetFilteredFindings(state) {
+  return currentGovernanceFindings.filter(finding => {
+    if (!governanceFacetMatches("workspaceId", finding.workspaceId, state) ||
+        !governanceFacetMatches("artifactType", finding.artifactType, state)) {
+      return false;
+    }
+    const reportIds = getGovernanceFindingReportIds(finding);
+    if (!governanceReportFacetMatches(reportIds, state)) {
+      return false;
+    }
+    if (state.options.has("tableName") && finding.checkId === "OPT-001" &&
+        finding.artifactName && !state.selections.get("tableName").has(finding.artifactName)) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function applyGovernanceResultFilters() {
+  const state = getGovernanceResultFacetState();
+  let activeFacetCount = 0;
+  for (const [key, count] of state.options) {
+    if (state.selections.get(key).size < count) {
+      activeFacetCount++;
+    }
+  }
+
+  const resultRows = [
+    elements.governanceWorkspaceRows,
+    elements.governanceGatewayRows,
+    elements.governanceAccessRows,
+    elements.governanceConnectionRows,
+    elements.governanceArtifactRows
+  ];
+  for (const body of resultRows) {
+    for (const row of body.rows) {
+      const reportIds = row.dataset.reportIds ? row.dataset.reportIds.split(",") : [];
+      row.hidden = !governanceFacetMatches("workspaceId", row.dataset.workspaceId, state) ||
+        !governanceFacetMatches("artifactType", row.dataset.artifactType, state) ||
+        !governanceReportFacetMatches(reportIds, state);
+    }
+  }
+
+  elements.governanceGatewayEmpty.hidden = [...elements.governanceGatewayRows.rows]
+    .some(row => !row.hidden);
+  elements.governanceGatewayEmpty.textContent = elements.governanceGatewayRows.rows.length > 0
+    ? "No gateways match the selected filters."
+    : currentGovernanceAudit?.selectedArtifactTypes?.includes("Gateways")
+      ? "No gateways were returned for this account."
+      : "Gateway inventory was not included in this scan.";
+  elements.governanceResultFilterSummary.textContent = activeFacetCount
+    ? `${activeFacetCount} filter${activeFacetCount === 1 ? "" : "s"} active`
+    : "All audit data shown";
+  elements.governanceResultFilterToggle.textContent = activeFacetCount ? "Clear filters" : "Clear all";
+
+  const visibleInventoryCount = type => type === "workspace"
+    ? [...elements.governanceWorkspaceRows.rows].filter(row => !row.hidden).length
+    : [...elements.governanceArtifactRows.rows, ...elements.governanceGatewayRows.rows]
+      .filter(row => !row.hidden && row.dataset.artifactType === type).length;
+  for (const count of elements.governanceInventoryCounts.querySelectorAll("[data-inventory-count]")) {
+    count.textContent = String(visibleInventoryCount(count.closest("[data-inventory-type]").dataset.inventoryType));
+  }
+
+  renderGovernanceFindingList();
 }
 
 async function exportGovernanceAudit() {
@@ -2152,7 +2425,8 @@ function handleGovernanceResultCardClick(event) {
 
 function renderGovernanceFindingList() {
   elements.governanceFindingList.replaceChildren();
-  const counts = getGovernanceFindingCounts(currentGovernanceFindings);
+  const facetFilteredFindings = getGovernanceFacetFilteredFindings(getGovernanceResultFacetState());
+  const counts = getGovernanceFindingCounts(facetFilteredFindings);
   for (const [status, count] of Object.entries({
     all: counts.total,
     FAIL: counts.FAIL,
@@ -2167,8 +2441,8 @@ function renderGovernanceFindingList() {
   }
 
   const checkScopedFindings = governanceFindingCheckFilter
-    ? currentGovernanceFindings.filter(finding => finding.checkId === governanceFindingCheckFilter)
-    : currentGovernanceFindings;
+    ? facetFilteredFindings.filter(finding => finding.checkId === governanceFindingCheckFilter)
+    : facetFilteredFindings;
   const visibleFindings = governanceFindingFilter === "all"
     ? checkScopedFindings
     : checkScopedFindings.filter(finding => finding.status === governanceFindingFilter);
@@ -2185,7 +2459,9 @@ function renderGovernanceFindingList() {
     elements.governanceNoFindings.hidden = false;
     elements.governanceNoFindings.textContent = currentGovernanceFindings.length === 0
       ? "No check results were returned for this scan."
-      : "There are no findings in this category.";
+      : facetFilteredFindings.length === 0
+        ? "No findings match the selected filters."
+        : "There are no findings in this category.";
     return;
   }
 
@@ -2820,8 +3096,15 @@ async function loadGovernanceAuditRun(runId) {
   }
 }
 
-function appendGovernanceRow(target, values) {
+function appendGovernanceRow(target, values, filterData = {}) {
   const row = document.createElement("tr");
+  for (const [key, value] of Object.entries(filterData)) {
+    if (Array.isArray(value)) {
+      row.dataset[key] = value.join(",");
+    } else if (value !== null && value !== undefined) {
+      row.dataset[key] = String(value);
+    }
+  }
   for (const value of values) {
     const cell = document.createElement("td");
     if (value instanceof Node) {
