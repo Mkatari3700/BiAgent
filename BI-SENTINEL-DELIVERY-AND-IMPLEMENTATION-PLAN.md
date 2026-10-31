@@ -324,13 +324,30 @@ The module names and high-level requirements below come from `ArchitectIQ_Module
 | Module | DOCX outcome | Planning status |
 |---|---|---|
 | Governance Audit | Audit workspaces, datasets, reports, ownership, standards, orphan artifacts, failed refreshes, and governance gaps using Power BI API metadata | Selected next; phase plan below |
-| Performance Optimization | Identify DAX, dataset-design, cardinality, refresh, and query-performance bottlenecks | Later module; scope and input sources to be prioritized |
+| Performance Optimization | Identify DAX, dataset-design, cardinality, refresh, and query-performance bottlenecks | Next after Governance Audit; discovery preparation |
 | Release Readiness | Assess naming, RLS, documentation, refresh validation, security, and deployment readiness | Later module; define how it consumes governance and review evidence |
 | Documentation Generator | Generate technical design documents, data dictionaries, measure catalogs, release notes, and architecture documentation | Later module; agree output formats and descriptions source |
 | Architecture Review | Assess semantic-model design, scalability, security, reusability, standards, and architectural maturity | Later module; define scored criteria and evidence |
 | BI Delivery Manager | Turn business requirements into stories, semantic models, KPIs, measures, visuals, and estimates | Later module; define supported workflow and human approval points |
 
-The remaining module order is not assumed. After the Governance Audit discovery gate, the product owner should choose the next module using user value, data/access readiness, dependencies, and delivery effort. Performance Optimization and Architecture Review may share model metadata, but should not be combined without confirming a coherent user outcome.
+The product owner has selected Performance Optimization as the next module to prepare after Governance Audit. This establishes discovery priority only; it does not authorize implementation or new Power BI access. Performance Optimization and Architecture Review may share model metadata, but should not be combined without confirming a coherent user outcome.
+
+### Performance Optimization — discovery preparation
+
+**Proposed outcome:** Help a BI developer diagnose and prioritize performance problems in a selected semantic model and its reports. Findings should be advisory, reproducible, and supported by measurable evidence; the module must not change, refresh, or publish Power BI assets.
+
+Before implementation, agree:
+
+- **Pilot and symptom:** Select one non-production workspace/model and one or two representative slow reports or queries. Name the user who will validate findings and describe the observed problem (for example, slow visuals, long refreshes, high memory, or expensive measures).
+- **First workflow:** Choose the primary MVP investigation—DAX/query execution, model size and cardinality, refresh duration, or report visual responsiveness. Keep other areas out of the first release unless they share the chosen evidence and a testable user outcome.
+- **Evidence and access:** Decide whether users provide PBIP/PBIR/PBIT files, the app reads approved Power BI metadata, or both. For each desired metric, confirm its source, freshness, availability in the target capacity/license, required permissions and tenant settings, and whether representative query traces or refresh history can be collected safely.
+- **Baseline and success:** Capture a before-state with agreed units and thresholds (such as query/visual duration, refresh duration, model memory, or row cardinality). Define how a pilot will demonstrate a useful, repeatable improvement without claiming that a static estimate guarantees production speed.
+- **Finding contract:** Agree how findings are ranked and presented: affected model/report object, measured or inferred impact, evidence and timestamp, confidence/data gaps, explanation, recommended next step, and an owner-facing severity. Separate measured facts from heuristic suggestions.
+- **Safety and privacy:** Set read-only boundaries, sample-data handling, tenant/workspace scope, retention, visibility, and any restrictions on query text or model expressions.
+
+**Discovery deliverables:** a pilot model/report and named validator; prioritized MVP symptom; evidence-source and permission matrix; recorded baseline and measurable acceptance criteria; example findings with expected evidence; and an approved privacy/access boundary.
+
+**Exit gate:** the BI platform/security owners approve every live data source and the minimum permissions, while the product owner and pilot developer accept a bounded MVP and measurable baseline. Until then, keep Performance Optimization as a planned module; do not infer performance from unavailable metadata or present heuristic estimates as measured timings.
 
 ### Governance Audit — proposed phased delivery
 

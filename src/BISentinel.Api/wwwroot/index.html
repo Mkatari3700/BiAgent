@@ -6,8 +6,8 @@
   <meta name="description" content="BI Sentinel BI workspace modules">
   <title>BI Sentinel | BI Workspace</title>
   <link rel="stylesheet" href="/auth.css?v=workspace-scroll-panel-1">
-  <link rel="stylesheet" href="/styles.css?v=review-toolbar-alignment-1">
-  <script src="/app.js?v=review-toolbar-alignment-1" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=governance-scan-ux-1">
+  <script src="/app.js?v=governance-scan-ux-1" defer></script>
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -380,9 +380,9 @@
             <span class="governance-status-icon" aria-hidden="true"></span>
             <span>Checking delegated Power BI access…</span>
           </div>
-          <div class="configuration-actions">
-            <a id="authorize-governance-powerbi" class="button button-primary" href="/api/governance-audit/signin">Authorize Power BI and model metadata access</a>
-            <button id="check-governance-powerbi-access" class="button button-secondary" type="button">Check access</button>
+          <div class="configuration-actions governance-access-actions">
+            <a id="authorize-governance-powerbi" class="button button-primary" href="/api/governance-audit/signin"><svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-shield"></use></svg>Authorize Power BI access</a>
+            <button id="check-governance-powerbi-access" class="button button-secondary" type="button"><svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-history"></use></svg>Check access</button>
             <button id="governance-access-next" class="button button-primary" type="button" disabled>Next: workspaces</button>
           </div>
         </section>
@@ -552,15 +552,16 @@
       </div>
       </section>
     </section>
-    <dialog id="governance-scan-confirmation" class="review-success-dialog" aria-labelledby="governance-scan-confirmation-title">
-      <div class="review-success-content">
+    <dialog id="governance-scan-confirmation" class="review-success-dialog governance-scan-confirmation-dialog" aria-labelledby="governance-scan-confirmation-title">
+      <div class="review-success-content governance-scan-confirmation-content">
         <p class="eyebrow">GOVERNANCE AUDIT</p>
-        <h2 id="governance-scan-confirmation-title">Confirm what to scan</h2>
-        <p class="dashboard-description">Review the selected workspaces, artifact types, and checks before the read-only scan starts.</p>
+        <h2 id="governance-scan-confirmation-title">Ready to run audit?</h2>
+        <p class="dashboard-description">Check the scan scope before continuing.</p>
         <ul id="governance-scan-confirmation-summary" class="governance-scan-confirmation-summary"></ul>
-        <div class="configuration-actions">
-          <button id="cancel-governance-scan" class="button button-secondary" type="button" autofocus>Cancel</button>
-          <button id="confirm-governance-scan" class="button button-primary" type="button">Run read-only audit</button>
+        <p class="governance-confirmation-note">Read-only scan. Power BI content and access are unchanged.</p>
+        <div class="configuration-actions governance-confirmation-actions">
+          <button id="cancel-governance-scan" class="button button-secondary" type="button" autofocus>Back to selections</button>
+          <button id="confirm-governance-scan" class="button button-primary" type="button"><svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-play"></use></svg>Run audit</button>
         </div>
       </div>
     </dialog>

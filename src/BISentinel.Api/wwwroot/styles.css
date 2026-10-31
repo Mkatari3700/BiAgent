@@ -568,12 +568,55 @@ h3 { margin-bottom: 7px; font-size: 17px; }
 .review-success-content { padding: 22px 24px 24px; }
 .review-success-content .eyebrow { color: #3c7f67; }
 .review-success-content h2 { margin-bottom: 12px; font-size: 21px; }
+.governance-scan-confirmation-dialog {
+  width: min(520px, calc(100% - 32px));
+  border-color: #d7e3ef;
+}
+.governance-scan-confirmation-content { padding: 24px; }
+.governance-scan-confirmation-content .eyebrow { color: #267c88; }
+.governance-scan-confirmation-content .dashboard-description { margin-bottom: 16px; }
 .governance-scan-confirmation-summary {
-  margin: 0 0 20px;
-  padding-left: 20px;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+  list-style: none;
   overflow-wrap: anywhere;
 }
-.governance-scan-confirmation-summary li + li { margin-top: 8px; }
+.governance-scan-confirmation-summary li {
+  padding: 9px 11px;
+  display: grid;
+  grid-template-columns: minmax(112px, .75fr) minmax(0, 1.6fr);
+  gap: 12px;
+  border: 1px solid #e3eaf1;
+  border-radius: 8px;
+  background: #f7f9fc;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.governance-scan-confirmation-summary strong { color: #344a63; }
+.governance-scan-confirmation-summary span { color: #62728a; }
+.governance-confirmation-note {
+  margin: 14px 0 0;
+  color: #557366;
+  font-size: 12px;
+}
+.configuration-actions.governance-confirmation-actions {
+  margin-top: 18px;
+  padding-top: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  border-top: 1px solid #e7edf3;
+}
+.configuration-actions.governance-confirmation-actions .button {
+  width: 100%;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
 .review-success-message {
   display: grid;
   gap: 6px;
@@ -1035,6 +1078,22 @@ h3 { margin-bottom: 7px; font-size: 17px; }
   font-size: 13px;
   line-height: 1.5;
 }
+.configuration-actions.governance-access-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 10px;
+}
+.configuration-actions.governance-access-actions #authorize-governance-powerbi { grid-column: 1 / -1; }
+.configuration-actions.governance-access-actions .button {
+  width: 100%;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.configuration-actions.governance-access-actions .button-icon { flex: 0 0 auto; }
 .governance-access-status.is-authorized {
   border-color: #b7decb;
   color: #28664d;
@@ -1747,6 +1806,9 @@ footer {
   .governance-workspace-filters { grid-template-columns: 1fr; }
   .governance-workspace-filters .button { grid-column: auto; width: 100%; }
   .governance-access-status { font-size: 12px; }
+  .governance-scan-confirmation-content { padding: 20px 16px; }
+  .governance-scan-confirmation-summary li { grid-template-columns: 1fr; gap: 3px; }
+  .configuration-actions.governance-confirmation-actions { grid-template-columns: 1fr; }
   .governance-check-option { align-items: flex-start; gap: 6px; padding: 9px; }
   .governance-results-heading { align-items: flex-start; flex-direction: column; }
   .governance-results-heading .button { width: 100%; }
@@ -1984,6 +2046,11 @@ h1, h2, h3 { color: #142a45; }
   color: #9d4038;
   background: #fff5f3;
 }
+.governance-workspace-load-status.is-loaded {
+  border-color: #b7decb;
+  color: #28664d;
+  background: #f0faf5;
+}
 .governance-inline-spinner {
   width: 16px;
   height: 16px;
@@ -1994,6 +2061,18 @@ h1, h2, h3 { color: #142a45; }
   animation: app-loading-spin .75s linear infinite;
 }
 .governance-workspace-load-status.is-error .governance-inline-spinner { display: none; }
+.governance-workspace-load-status.is-loaded .governance-inline-spinner {
+  display: grid;
+  place-items: center;
+  border: 0;
+  color: #28664d;
+  animation: none;
+}
+.governance-workspace-load-status.is-loaded .governance-inline-spinner::after {
+  content: "✓";
+  font-size: 16px;
+  font-weight: 700;
+}
 .governance-access-status { border-radius: 9px; }
 .admin-tab[disabled] { color: #a5afbd; cursor: not-allowed; }
 .admin-tab[disabled]:hover { color: #a5afbd; }

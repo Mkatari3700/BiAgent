@@ -1323,7 +1323,7 @@ async function prepareGovernanceWorkspaceStep() {
     elements.governanceScanWorkspaces.replaceChildren();
   }
   elements.governanceWorkspaceLoadStatus.hidden = false;
-  elements.governanceWorkspaceLoadStatus.classList.remove("is-error");
+  elements.governanceWorkspaceLoadStatus.classList.remove("is-error", "is-loaded");
   elements.governanceWorkspaceLoadMessage.textContent = "Loading approved workspace names from Power BI…";
   elements.governanceAccessNext.disabled = true;
   const workspaceTab = elements.governanceScanTabs.find(tab => tab.dataset.governanceScanTab === "workspaces");
@@ -1339,10 +1339,15 @@ async function prepareGovernanceWorkspaceStep() {
     return false;
   }
 
-  elements.governanceWorkspaceLoadMessage.textContent =
-    `${elements.governanceScanWorkspaces.querySelectorAll("[data-governance-scan-workspace]").length} approved workspace names loaded from Power BI.`;
+  const workspaceCount = elements.governanceScanWorkspaces.querySelectorAll(
+    "[data-governance-scan-workspace]"
+  ).length;
+  elements.governanceWorkspaceLoadStatus.classList.add("is-loaded");
+  elements.governanceWorkspaceLoadMessage.textContent = workspaceCount > 0
+    ? `${workspaceCount} approved workspace${workspaceCount === 1 ? "" : "s"} ready.`
+    : "No workspaces approved yet. Add one in Governance Audit Administration.";
   workspaceTab.disabled = false;
-  elements.governanceAccessNext.disabled = false;
+  elements.governanceAccessNext.disabled = workspaceCount === 0;
   return true;
 }
 
@@ -1934,35 +1939,50 @@ async function prepareGovernanceScan() {
     filterGateways: gatewaySelection.filter
   };
   elements.governanceScanConfirmationSummary.replaceChildren();
-  const reportSummary = selectedArtifactTypes.includes("Reports")
-    ? reportSelection.filter ? summarizeGovernanceArtifactSelection(reportSelection) : ["All reports in selected workspaces"]
-    : ["Not selected"];
-  const dashboardSummary = selectedArtifactTypes.includes("Dashboards")
-    ? dashboardSelection.filter ? summarizeGovernanceArtifactSelection(dashboardSelection) : ["All dashboards in selected workspaces"]
-    : ["Not selected"];
-  const appSummary = selectedArtifactTypes.includes("Apps")
-    ? appSelection.filter ? summarizeGovernanceArtifactSelection(appSelection) : ["All installed apps visible to the signed-in user"]
-    : ["Not selected"];
-  const gatewaySummary = selectedArtifactTypes.includes("Gateways")
-    ? gatewaySelection.filter ? summarizeGovernanceArtifactSelection(gatewaySelection) : ["All gateways visible to the signed-in gateway admins"]
-    : ["Not selected"];
-  for (const [label, values] of [
+  const confirmationSummary = [
     [`Workspaces (${workspaceLabels.length})`, workspaceLabels],
-    ["Artifact types", selectedArtifactTypes.map(type => type === "SemanticModels" ? "Semantic models" : type)],
-    ["Reports", reportSummary],
-    ["Dashboards", dashboardSummary],
-    ["Apps (account-level)", appSummary],
-    ["Gateways (account-level)", gatewaySummary],
+    ["Artifacts", selectedArtifactTypes.map(type => type === "SemanticModels" ? "Semantic models" : type)],
+    ...(selectedArtifactTypes.includes("Reports")
+      ? [["Reports", reportSelection.filter
+        ? summarizeGovernanceConfirmationSelection(reportSelection)
+        : ["All in selected workspaces"]]]
+      : []),
+    ...(selectedArtifactTypes.includes("Dashboards")
+      ? [["Dashboards", dashboardSelection.filter
+        ? summarizeGovernanceConfirmationSelection(dashboardSelection)
+        : ["All in selected workspaces"]]]
+      : []),
+    ...(selectedArtifactTypes.includes("Apps")
+      ? [["Apps", appSelection.filter
+        ? summarizeGovernanceConfirmationSelection(appSelection)
+        : ["All visible to your account"]]]
+      : []),
+    ...(selectedArtifactTypes.includes("Gateways")
+      ? [["Gateways", gatewaySelection.filter
+        ? summarizeGovernanceConfirmationSelection(gatewaySelection)
+        : ["All visible to your account"]]]
+      : []),
     [`Governance checks (${checkLabels.length})`, checkLabels],
     ...(selectedChecks.some(checkId => checkId.startsWith("OPT-"))
-      ? [["Model-object checks", ["Automatically queried from each selected semantic model; unsupported metadata is reported as an evidence gap"]]]
+      ? [["Model metadata", ["Selected semantic models; unavailable data is reported as an evidence gap"]]]
       : [])
-  ]) {
+  ];
+  for (const [label, values] of confirmationSummary) {
     const item = document.createElement("li");
-    item.textContent = `${label}: ${values.join(", ")}`;
+    const heading = document.createElement("strong");
+    heading.textContent = label;
+    const detail = document.createElement("span");
+    detail.textContent = values.length > 3
+      ? `${values.slice(0, 3).join(", ")} + ${values.length - 3} more`
+      : values.join(", ");
+    item.append(heading, detail);
     elements.governanceScanConfirmationSummary.append(item);
   }
   elements.governanceScanConfirmationDialog.showModal();
+}
+
+function summarizeGovernanceConfirmationSelection(selection) {
+  return [`${selection.names.length} selected`];
 }
 
 function summarizeGovernanceArtifactSelection(selection) {
