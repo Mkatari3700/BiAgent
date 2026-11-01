@@ -9,6 +9,12 @@ public interface IPbipProjectReviewer
         string projectId,
         string? projectName,
         CancellationToken cancellationToken);
+
+    Task<PbipReviewResult> ReviewOnlineModelAsync(
+        PbipProjectModel project,
+        string projectId,
+        IReadOnlySet<string> unavailableEvidenceRuleKeys,
+        CancellationToken cancellationToken);
 }
 
 public sealed class PbipProjectReviewer(
@@ -103,6 +109,61 @@ public sealed class PbipProjectReviewer(
         {
             ExecutedRuleKeys = executedRuleKeys,
             ReportReferencesAvailable = project.ReportReferences is { Count: > 0 }
+        };
+    }
+
+    public async Task<PbipReviewResult> ReviewOnlineModelAsync(
+        PbipProjectModel project,
+        string projectId,
+        IReadOnlySet<string> unavailableEvidenceRuleKeys,
+        CancellationToken cancellationToken)
+    {
+        var configuration = await configurationStore.GetAsync(cancellationToken);
+        var options = configuration.Configuration.ToReviewOptions(optionsMonitor.CurrentValue);
+        project = project with
+        {
+            Tables = PbipProjectMetadata.DeduplicateTables(project.Tables),
+            Relationships = PbipProjectMetadata.DeduplicateRelationships(project.Relationships)
+        };
+
+        var findings = new List<PbipReviewFinding>();
+        var checksRun = 0;
+        var executedRuleKeys = new List<string>();
+        foreach (var rule in rules)
+        {
+            if (!project.HasSemanticModel ||
+                unavailableEvidenceRuleKeys.Contains(rule.Key) ||
+                !options.GetPolicy(rule.Key).Enabled)
+            {
+                continue;
+            }
+
+            var result = rule.Evaluate(project, options);
+            checksRun += result.ChecksRun;
+            executedRuleKeys.Add(rule.Key);
+            findings.AddRange(result.Findings.Select(finding =>
+                finding with { Severity = options.GetPolicy(rule.Key).Severity }));
+        }
+
+        var modelTables = project.Tables
+            .Where(table => !IsGeneratedTable(table.Name, options.GeneratedTablePrefixes))
+            .ToArray();
+        var modelRelationships = project.Relationships
+            .Where(relationship =>
+                !IsGeneratedTable(relationship.FromTable, options.GeneratedTablePrefixes) &&
+                !IsGeneratedTable(relationship.ToTable, options.GeneratedTablePrefixes))
+            .ToArray();
+        return new PbipReviewResult(
+            project.ProjectName,
+            projectId,
+            modelTables.Length,
+            project.Tables.Sum(static table => table.Measures.Count),
+            modelRelationships.Length,
+            checksRun,
+            findings)
+        {
+            ExecutedRuleKeys = executedRuleKeys,
+            ReportReferencesAvailable = false
         };
     }
 

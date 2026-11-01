@@ -171,6 +171,56 @@ public sealed class ReviewTests
     }
 
     [Fact]
+    public async Task ReviewModuleAvailabilityMiddleware_HidesPerformanceOptimizationApiWhenDisabled()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Path = "/api/performance-optimization/assess";
+        var nextCalled = false;
+        var middleware = new ReviewModuleAvailabilityMiddleware(
+            _ =>
+            {
+                nextCalled = true;
+                return Task.CompletedTask;
+            },
+            NullLogger<ReviewModuleAvailabilityMiddleware>.Instance);
+
+        await middleware.InvokeAsync(
+            context,
+            new StubReviewConfigurationStore(new ReviewConfiguration
+            {
+                Modules = new ModuleAvailability { PerformanceOptimization = false }
+            }));
+
+        Assert.False(nextCalled);
+        Assert.Equal(StatusCodes.Status404NotFound, context.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task ReviewModuleAvailabilityMiddleware_AllowsPerformanceOptimizationApiWhenEnabled()
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Path = "/api/performance-optimization/assess";
+        var nextCalled = false;
+        var middleware = new ReviewModuleAvailabilityMiddleware(
+            _ =>
+            {
+                nextCalled = true;
+                return Task.CompletedTask;
+            },
+            NullLogger<ReviewModuleAvailabilityMiddleware>.Instance);
+
+        await middleware.InvokeAsync(
+            context,
+            new StubReviewConfigurationStore(new ReviewConfiguration
+            {
+                Modules = new ModuleAvailability { PerformanceOptimization = true }
+            }));
+
+        Assert.True(nextCalled);
+        Assert.Equal(StatusCodes.Status200OK, context.Response.StatusCode);
+    }
+
+    [Fact]
     public void ReviewConfigurationValidator_RejectsInvalidRegexSeverityAndUnknownRules()
     {
         var configuration = new ReviewConfiguration
@@ -188,6 +238,38 @@ public sealed class ReviewTests
         Assert.Contains(nameof(configuration.TableNamePattern), errors.Keys);
         Assert.Contains("Rules.table-naming.Severity", errors.Keys);
         Assert.Contains("Rules.unregistered-rule", errors.Keys);
+    }
+
+    [Fact]
+    public async Task ReviewOnlineModelAsync_SkipsChecksWithoutOnlineEvidence()
+    {
+        var project = new PbipProjectModel(
+            "Online workspace",
+            [],
+            [new ModelTable(
+                "fact_sales",
+                "Sales model/fact_sales",
+                [new ModelColumn("Column1")],
+                [])],
+            [],
+            HasSemanticModel: true);
+        var reviewer = CreateReviewer(project, "unused", DefaultRules());
+
+        var result = await reviewer.ReviewOnlineModelAsync(
+            project,
+            "online-workspace",
+            new HashSet<string>(
+                ["measure-table-name", "measure-naming", "required-measures", "explicit-measures",
+                 "dax-division", "dax-format", "unused-tables", "unused-columns", "unused-measures"],
+                StringComparer.OrdinalIgnoreCase),
+            CancellationToken.None);
+
+        Assert.Contains("table-naming", result.ExecutedRuleKeys);
+        Assert.Contains("column-naming", result.ExecutedRuleKeys);
+        Assert.DoesNotContain("dax-division", result.ExecutedRuleKeys);
+        Assert.DoesNotContain("unused-measures", result.ExecutedRuleKeys);
+        Assert.Contains(result.Findings, finding => finding.RuleId == "NAM-001");
+        Assert.Contains(result.Findings, finding => finding.RuleId == "NAM-003");
     }
 
     [Fact]

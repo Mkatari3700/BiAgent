@@ -51,15 +51,30 @@ public sealed record PbipProjectModel(
     IReadOnlyList<ModelTable> Tables,
     IReadOnlyList<ModelRelationship> Relationships,
     bool HasSemanticModel = true,
-    IReadOnlyList<string>? ReportReferences = null);
+    IReadOnlyList<string>? ReportReferences = null)
+{
+    public IReadOnlyList<ModelReportFile> ReportFiles { get; init; } = [];
+}
 
 public sealed record ModelTable(
     string Name,
     string FileName,
     IReadOnlyList<ModelColumn> Columns,
-    IReadOnlyList<ModelMeasure> Measures);
+    IReadOnlyList<ModelMeasure> Measures)
+{
+    public bool IsCalculated { get; init; }
 
-public sealed record ModelColumn(string Name);
+    public IReadOnlyList<ModelPartition> Partitions { get; init; } = [];
+
+    public IReadOnlyList<ModelHierarchy> Hierarchies { get; init; } = [];
+}
+
+public sealed record ModelColumn(
+    string Name,
+    string? DataType = null,
+    bool IsCalculated = false,
+    string? Expression = null,
+    bool IsHidden = false);
 
 public sealed record ModelMeasure(string Name, string Expression);
 
@@ -68,7 +83,17 @@ public sealed record ModelRelationship(
     string FromColumn,
     string ToTable,
     string ToColumn,
-    bool IsBidirectional);
+    bool IsBidirectional,
+    string? FromCardinality = null,
+    string? ToCardinality = null,
+    bool? IsActive = null,
+    string? CrossFilteringBehavior = null);
+
+public sealed record ModelPartition(string Name, string? Mode, string? SourceType);
+
+public sealed record ModelHierarchy(string Name, IReadOnlyList<string> Levels);
+
+public sealed record ModelReportFile(string RelativePath, string Content);
 
 public sealed record PbipReviewResult(
     string ProjectName,

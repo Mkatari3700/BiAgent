@@ -16,6 +16,14 @@ public sealed class ReviewModuleAvailabilityMiddleware(
         if (!context.Request.Path.StartsWithSegments("/api/reviews", StringComparison.OrdinalIgnoreCase))
         {
             if (context.Request.Path.StartsWithSegments(
+                    "/api/performance-optimization",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                await InvokePerformanceOptimizationAsync(context, configurationStore);
+                return;
+            }
+
+            if (context.Request.Path.StartsWithSegments(
                     "/api/governance-audit",
                     StringComparison.OrdinalIgnoreCase))
             {
@@ -60,6 +68,49 @@ public sealed class ReviewModuleAvailabilityMiddleware(
                 StatusCodes.Status404NotFound,
                 "Review module is disabled",
                 "Enable the Reviews module in Administration to use this endpoint.");
+            return;
+        }
+
+        await next(context);
+    }
+
+    private async Task InvokePerformanceOptimizationAsync(
+        HttpContext context,
+        IReviewConfigurationStore configurationStore)
+    {
+        ReviewConfigurationSnapshot snapshot;
+        try
+        {
+            snapshot = await configurationStore.GetAsync(context.RequestAborted);
+        }
+        catch (SqlException exception)
+        {
+            logger.LogError(exception, "Checking Performance Optimization module availability failed.");
+            await WriteProblemAsync(
+                context,
+                StatusCodes.Status503ServiceUnavailable,
+                "Module availability could not be checked",
+                "The Performance Optimization module configuration is unavailable.");
+            return;
+        }
+
+        if (snapshot.Configuration.Modules is null)
+        {
+            await WriteProblemAsync(
+                context,
+                StatusCodes.Status503ServiceUnavailable,
+                "Module availability is invalid",
+                "Reload and save module availability in Administration.");
+            return;
+        }
+
+        if (!snapshot.Configuration.Modules.PerformanceOptimization)
+        {
+            await WriteProblemAsync(
+                context,
+                StatusCodes.Status404NotFound,
+                "Performance Optimization module is disabled",
+                "Enable Performance Optimization in Administration to use this endpoint.");
             return;
         }
 

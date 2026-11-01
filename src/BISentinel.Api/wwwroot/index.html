@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="BI Sentinel BI workspace modules">
-  <title>BI Sentinel | BI Workspace</title>
-  <link rel="stylesheet" href="/auth.css?v=workspace-scroll-panel-1">
-  <link rel="stylesheet" href="/styles.css?v=governance-scan-ux-1">
-  <script src="/app.js?v=governance-scan-ux-1" defer></script>
+  <meta name="description" content="BI Sentinel project review, governance, and performance tools">
+  <title>BI Sentinel</title>
+  <link rel="stylesheet" href="/auth.css?v=organization-hierarchy-1">
+  <link rel="stylesheet" href="/styles.css?v=workspace-scope-context-2">
+  <script src="/app.js?v=workspace-scope-context-2" defer></script>
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -31,6 +31,13 @@
     <symbol id="icon-list" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="13" height="13" rx="1.5"/><path d="M5 5h6M5 8h6M5 11h4"/></symbol>
     <symbol id="icon-users" viewBox="0 0 16 16"><circle cx="6" cy="5" r="2.5"/><path d="M1.5 14v-1a4.5 4.5 0 0 1 9 0v1h-9ZM11 3a2.2 2.2 0 0 1 0 4.3M12 9a3.5 3.5 0 0 1 2.5 3.3v1"/></symbol>
     <symbol id="icon-workspace" viewBox="0 0 16 16"><rect x="1.5" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="9" y="1.5" width="5.5" height="5.5" rx="1"/><rect x="1.5" y="9" width="5.5" height="5.5" rx="1"/><rect x="9" y="9" width="5.5" height="5.5" rx="1"/></symbol>
+    <symbol id="icon-organization" viewBox="0 0 16 16"><path d="M1.5 14.5h13M3 14.5V4.5h10v10M5.5 4.5V2h5v2.5M5.5 7h1m3 0h1m-5 2.5h1m3 0h1m-5 2.5h1m3 0h1"/></symbol>
+    <symbol id="icon-hierarchy" viewBox="0 0 16 16"><rect x="5.5" y="1.5" width="5" height="3.5" rx=".8"/><rect x="1" y="11" width="5" height="3.5" rx=".8"/><rect x="10" y="11" width="5" height="3.5" rx=".8"/><path d="M8 5v3m-4.5 0h9M3.5 8v3m9-3v3"/></symbol>
+    <symbol id="icon-project" viewBox="0 0 16 16"><path d="M1.5 4.5h5l1.5 1.7h6.5v7.3h-13z"/><path d="M1.5 4.5V3a1 1 0 0 1 1-1h3.8l1.7 2h5.5a1 1 0 0 1 1 1v1.2"/></symbol>
+    <symbol id="icon-team" viewBox="0 0 16 16"><circle cx="8" cy="5" r="2.2"/><circle cx="3" cy="6" r="1.6"/><circle cx="13" cy="6" r="1.6"/><path d="M3.5 14v-1a4.5 4.5 0 0 1 9 0v1h-9ZM.8 13v-.8a2.2 2.2 0 0 1 2.5-2.2m12 3v-.8a2.2 2.2 0 0 0-2.5-2.2"/></symbol>
+    <symbol id="icon-home" viewBox="0 0 16 16"><path d="m1.5 7 6.5-5.5L14.5 7"/><path d="M3.5 6v8.5h9V6M6.5 14.5V9h3v5.5"/></symbol>
+    <symbol id="icon-user" viewBox="0 0 16 16"><circle cx="8" cy="5" r="3"/><path d="M2 14.5a6 6 0 0 1 12 0"/></symbol>
+    <symbol id="icon-support" viewBox="0 0 16 16"><path d="M2 8a6 6 0 0 1 12 0v3a2 2 0 0 1-2 2h-1"/><path d="M2 8v3a2 2 0 0 0 2 2h1V8H4a2 2 0 0 0-2 2Zm12 0v3a2 2 0 0 1-2 2h-1V8h1a2 2 0 0 1 2 2Z"/><path d="M6 14.5h3"/></symbol>
   </svg>
   <div id="app-loading-indicator" class="app-loading-indicator" role="status" aria-live="polite" aria-hidden="true" hidden>
     <span class="app-loading-spinner" aria-hidden="true"></span>
@@ -39,16 +46,42 @@
   <header class="topbar">
     <a class="brand" href="/" aria-label="BI Sentinel home">
       <span class="brand-mark" aria-hidden="true"><img src="/brand-mark.svg" alt=""></span>
-      <span>BI Sentinel <span class="brand-subtitle">BI Workspace</span></span>
+      <span>BI Sentinel</span>
     </a>
+    <label id="workspace-scope-controls" class="workspace-scope-controls" for="workspace-scope-select" hidden>
+      <span>Working in</span>
+      <select id="workspace-scope-select" aria-label="Choose organization, project, or team"></select>
+    </label>
     <div id="account-controls" class="account-controls" hidden>
-      <span id="account-name" class="account-name"></span>
-      <form action="/auth/sign-out" method="post">
-        <button class="button button-secondary account-sign-out" type="submit">
-          <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-sign-out"></use></svg>
-          <span>Sign out</span>
-        </button>
-      </form>
+      <details id="profile-menu" class="profile-menu">
+        <summary class="profile-menu-trigger" aria-label="Open account menu">
+          <span id="account-initial" class="account-avatar-initial" aria-hidden="true">U</span>
+        </summary>
+        <div class="profile-menu-panel">
+          <div class="profile-menu-identity">
+            <strong id="account-name" class="profile-menu-name"></strong>
+            <span id="account-email" class="profile-menu-email"></span>
+          </div>
+          <a href="/profile" data-page-navigation="profile">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-user"></use></svg>
+            <span>View profile</span>
+          </a>
+          <a id="access-requests-menu-link" href="/access-requests" data-page-navigation="accessRequests">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-users"></use></svg>
+            <span>Access requests</span>
+          </a>
+          <a href="/support" data-page-navigation="support">
+            <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-support"></use></svg>
+            <span>Contact support</span>
+          </a>
+          <form action="/auth/sign-out" method="post">
+            <button type="submit">
+              <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-sign-out"></use></svg>
+              <span>Sign out</span>
+            </button>
+          </form>
+        </div>
+      </details>
     </div>
   </header>
 
@@ -77,28 +110,34 @@
         </button>
       </div>
       <nav id="main-navigation" class="sidebar-nav">
-        <a id="reviews-navigation" class="sidebar-link" href="/reviews" data-module-navigation="reviews" hidden>
-          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-review"></use></svg></span><span>Power BI Project Review</span>
+        <a class="sidebar-link" href="/" data-page-navigation="dashboard" data-tooltip="Dashboard" aria-label="Dashboard">
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-home"></use></svg></span><span>Dashboard</span>
         </a>
-        <a class="sidebar-link" href="/modules/governance-audit" data-module-navigation="governanceAudit" data-admin-only="true" hidden>
-          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-shield"></use></svg></span><span>Governance Audit</span>
+        <a id="reviews-navigation" class="sidebar-link" href="/reviews" data-module-navigation="reviews" data-tooltip="Project Review" aria-label="Project Review" hidden>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-review"></use></svg></span><span>Project Review</span>
         </a>
-        <a class="sidebar-link" href="/modules/performance-optimization" data-module-navigation="performanceOptimization" hidden>
+        <a class="sidebar-link" href="/modules/governance-audit" data-module-navigation="governanceAudit" data-admin-only="true" data-tooltip="Governance" aria-label="Governance" hidden>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-shield"></use></svg></span><span>Governance</span>
+        </a>
+        <a class="sidebar-link" href="/modules/performance-optimization" data-module-navigation="performanceOptimization" data-tooltip="Performance Optimization" aria-label="Performance Optimization" hidden>
           <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-speedometer"></use></svg></span><span>Performance Optimization</span>
         </a>
-        <a class="sidebar-link" href="/modules/release-readiness" data-module-navigation="releaseReadiness" hidden>
+        <a id="hierarchy-navigation" class="sidebar-link" href="/admin/hierarchy" data-page-navigation="hierarchy" data-tooltip="Setup Hierarchy" aria-label="Setup Hierarchy" hidden>
+          <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-hierarchy"></use></svg></span><span>Setup Hierarchy</span>
+        </a>
+        <a class="sidebar-link" href="/modules/release-readiness" data-module-navigation="releaseReadiness" data-tooltip="Release Readiness" aria-label="Release Readiness" hidden>
           <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-list-check"></use></svg></span><span>Release Readiness</span>
         </a>
-        <a class="sidebar-link" href="/modules/documentation-generator" data-module-navigation="documentationGenerator" hidden>
+        <a class="sidebar-link" href="/modules/documentation-generator" data-module-navigation="documentationGenerator" data-tooltip="Documentation Generator" aria-label="Documentation Generator" hidden>
           <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-document"></use></svg></span><span>Documentation Generator</span>
         </a>
-        <a class="sidebar-link" href="/modules/architecture-review" data-module-navigation="architectureReview" hidden>
+        <a class="sidebar-link" href="/modules/architecture-review" data-module-navigation="architectureReview" data-tooltip="Architecture Review" aria-label="Architecture Review" hidden>
           <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-diagram"></use></svg></span><span>Architecture Review</span>
         </a>
-        <a class="sidebar-link" href="/modules/bi-delivery-manager" data-module-navigation="biDeliveryManager" hidden>
+        <a class="sidebar-link" href="/modules/bi-delivery-manager" data-module-navigation="biDeliveryManager" data-tooltip="BI Delivery Manager" aria-label="BI Delivery Manager" hidden>
           <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-play"></use></svg></span><span>BI Delivery Manager</span>
         </a>
-        <a id="administration-navigation" class="sidebar-link" href="/admin/workspace">
+        <a id="administration-navigation" class="sidebar-link" href="/admin/workspace" data-tooltip="Administration" aria-label="Administration">
           <span class="sidebar-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-gear"></use></svg></span>
           <span>Administration</span>
         </a>
@@ -107,16 +146,226 @@
     </aside>
     <main class="page">
     <div id="workspace-loading" class="status" role="status">Loading workspace settings…</div>
+    <section id="dashboard-workspace" class="portal-dashboard" aria-labelledby="portal-dashboard-title" hidden>
+      <header class="portal-dashboard-heading">
+        <div>
+          <p class="eyebrow">BI SENTINEL</p>
+          <h1 id="portal-dashboard-title">Your workspace</h1>
+          <p class="intro-copy">A clear view of your BI work and tools, all in one place.</p>
+        </div>
+        <a class="button button-primary dashboard-primary-action" href="/reviews" data-module-navigation="reviews">Start a project review</a>
+      </header>
+      <p id="portal-dashboard-status" class="status" role="status" aria-live="polite" hidden></p>
+      <div id="portal-dashboard-tiles" class="portal-dashboard-tiles"></div>
+      <section id="portal-admin-overview" class="portal-admin-overview" aria-label="Administrator overview" hidden>
+        <div class="portal-admin-overview-heading">
+          <div>
+            <p class="eyebrow">ADMINISTRATOR OVERVIEW</p>
+            <h2>BI Sentinel at a glance</h2>
+          </div>
+          <a class="button button-secondary" href="/support" data-page-navigation="support">Open support queue</a>
+        </div>
+        <div id="portal-admin-metrics" class="portal-admin-metrics"></div>
+      </section>
+      <section class="portal-dashboard-next" aria-label="What’s next">
+        <div>
+          <p class="eyebrow">BUILT FOR YOUR BI TEAM</p>
+          <h2>More tools, when you need them</h2>
+          <p>New capabilities will appear here as they become available to your organization.</p>
+        </div>
+      </section>
+    </section>
+    <section id="profile-workspace" class="portal-page" aria-labelledby="profile-page-title" hidden>
+      <header class="intro">
+        <div><p class="eyebrow">YOUR ACCOUNT</p><h1 id="profile-page-title">Profile</h1><p class="intro-copy">Your organization account and BI Sentinel access.</p></div>
+      </header>
+      <div class="profile-details-card">
+        <span class="profile-details-icon" aria-hidden="true"><svg viewBox="0 0 16 16"><use href="#icon-user"></use></svg></span>
+        <div><p class="eyebrow">SIGNED IN AS</p><h2 id="profile-name">—</h2><p id="profile-email" class="dashboard-description"></p></div>
+      </div>
+      <section class="configuration-card">
+        <h2>Application access</h2>
+        <p id="profile-roles" class="profile-role-list"></p>
+        <p class="dashboard-description">Power BI workspace access is controlled by your organization in Power BI. BI Sentinel only reads data allowed by your account and the permissions you authorize.</p>
+      </section>
+      <section class="configuration-card" aria-labelledby="profile-scope-users-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">CURRENT WORKSPACE</p><h2 id="profile-scope-users-title">People in this scope</h2></div>
+          <span id="profile-scope-user-count" class="status"></span>
+        </div>
+        <p id="profile-scope-label" class="dashboard-description"></p>
+        <div id="profile-scope-users" class="workspace-scope-users"></div>
+        <p id="profile-scope-users-empty" class="dashboard-empty" hidden>No users are assigned to this scope.</p>
+      </section>
+      <div class="profile-page-actions">
+        <a class="button button-primary" href="/support" data-page-navigation="support">Contact support</a>
+      </div>
+    </section>
+    <section id="support-workspace" class="portal-page" aria-labelledby="support-page-title" hidden>
+      <header class="intro">
+        <div><p class="eyebrow">HELP &amp; SUPPORT</p><h1 id="support-page-title">Support</h1><p class="intro-copy">Send a request to your BI Sentinel administrator and follow the response here.</p></div>
+      </header>
+      <section id="support-request-form-card" class="configuration-card" aria-labelledby="support-request-title">
+        <h2 id="support-request-title">Contact your administrator</h2>
+        <form id="support-request-form" class="support-request-form">
+          <label class="intake-field"><span>Request type</span>
+            <select id="support-category" required>
+              <option>Technical issue</option><option>Access request</option><option>Feature request</option><option>Other</option>
+            </select>
+          </label>
+          <label class="intake-field"><span>Subject</span><input id="support-subject" type="text" maxlength="200" required></label>
+          <label class="intake-field support-message-field"><span>How can we help?</span><textarea id="support-message" rows="4" maxlength="4000" required></textarea></label>
+          <button id="submit-support-request" class="button button-primary" type="submit">Send request</button>
+        </form>
+        <p id="support-form-status" class="status" role="status" aria-live="polite" hidden></p>
+        <p id="support-form-error" class="error-banner" role="alert" hidden></p>
+      </section>
+      <section class="configuration-card support-requests-card" aria-labelledby="support-requests-title">
+        <div class="section-heading">
+          <div><p id="support-queue-eyebrow" class="eyebrow">YOUR REQUESTS</p><h2 id="support-requests-title">Support requests</h2></div>
+          <button id="refresh-support-requests" class="button button-secondary" type="button">Refresh</button>
+        </div>
+        <p id="support-requests-status" class="status" role="status" aria-live="polite"></p>
+        <div id="support-requests-list" class="support-requests-list"></div>
+        <p id="support-requests-empty" class="dashboard-empty" hidden>No support requests yet.</p>
+      </section>
+    </section>
+    <section id="access-requests-workspace" class="portal-page access-requests-workspace" aria-labelledby="access-requests-title" hidden>
+      <header class="intro">
+        <div>
+          <p class="eyebrow">SCOPED ACCESS</p>
+          <h1 id="access-requests-title">Access requests</h1>
+          <p class="intro-copy">Request access to an organization, project, or team. A lead reviews the request before access is enabled.</p>
+        </div>
+        <button id="refresh-access-requests" class="button button-secondary" type="button">Refresh requests</button>
+      </header>
+      <p id="access-request-status" class="status" role="status" aria-live="polite"></p>
+      <p id="access-request-error" class="error-banner" role="alert" hidden></p>
+      <section class="configuration-card" aria-labelledby="access-request-form-title">
+        <h2 id="access-request-form-title">Request access</h2>
+        <form id="access-request-form" class="access-request-form">
+          <label class="intake-field"><span>Access level</span>
+            <select id="access-request-scope-type" name="scopeType" required>
+              <option value="Organization">Organization</option>
+              <option value="Project">Project</option>
+              <option value="Team">Team</option>
+            </select>
+          </label>
+          <label class="intake-field"><span>Organization / project / team</span>
+            <select id="access-request-scope-id" name="scopeId" required></select>
+          </label>
+          <label class="intake-field"><span>Role requested</span>
+            <select id="access-request-role" name="roleName" required></select>
+          </label>
+          <label class="intake-field access-request-message-field"><span>Optional note</span>
+            <textarea id="access-request-message" name="message" rows="3" maxlength="2000" placeholder="Add context for the approvers"></textarea>
+          </label>
+          <p id="access-request-approval-flow" class="intake-note access-request-flow"></p>
+          <button id="submit-access-request" class="button button-primary" type="submit">Submit access request</button>
+        </form>
+      </section>
+      <section class="configuration-card" aria-labelledby="my-access-requests-title">
+        <h2 id="my-access-requests-title">Your requests</h2>
+        <div id="my-access-requests" class="access-request-list"></div>
+        <p id="my-access-requests-empty" class="dashboard-empty" hidden>You have not submitted an access request.</p>
+      </section>
+      <section id="access-request-inbox-section" class="configuration-card" aria-labelledby="access-request-inbox-title" hidden>
+        <div class="section-heading">
+          <div>
+            <h2 id="access-request-inbox-title">Requests awaiting your review</h2>
+            <p class="dashboard-description">You can act on requests for your assigned scope. Unanswered requests are escalated to the next lead level.</p>
+          </div>
+        </div>
+        <p id="access-request-inbox-status" class="status" role="status" aria-live="polite"></p>
+        <div id="access-request-inbox" class="access-request-list"></div>
+        <p id="access-request-inbox-empty" class="dashboard-empty" hidden>No requests are currently awaiting your review.</p>
+      </section>
+      <section id="access-request-settings-section" class="configuration-card" aria-labelledby="access-request-settings-title" hidden>
+        <h2 id="access-request-settings-title">Escalation settings</h2>
+        <p class="dashboard-description">Requests are reminded daily. After this interval, the next lead level is notified and can act. Root administrators can always review requests.</p>
+        <form id="access-request-settings-form" class="access-request-settings-form">
+          <label class="intake-field"><span>Days before escalation</span>
+            <input id="access-request-escalation-days" name="escalationDays" type="number" min="1" max="30" required>
+          </label>
+          <button id="save-access-request-settings" class="button button-secondary" type="submit">Save interval</button>
+        </form>
+        <p id="access-request-settings-status" class="status" role="status" aria-live="polite"></p>
+      </section>
+    </section>
+    <section id="hierarchy-workspace" class="portal-page hierarchy-workspace" aria-labelledby="hierarchy-page-title" hidden>
+      <header class="intro">
+        <div>
+          <p class="eyebrow">HIERARCHY SETUP</p>
+          <h1 id="hierarchy-page-title">Organizations, projects &amp; teams</h1>
+          <p class="intro-copy">Manage membership and access within your organization hierarchy. Existing unassigned records remain private to root administrators until explicitly assigned.</p>
+        </div>
+      </header>
+      <p id="hierarchy-status" class="status" role="status" aria-live="polite">Loading access settings…</p>
+      <p id="hierarchy-error" class="error-banner" role="alert" hidden></p>
+      <section class="configuration-card" aria-labelledby="hierarchy-inventory-title">
+        <h2 id="hierarchy-inventory-title">Hierarchy overview</h2>
+        <p class="intake-note">Organizations, projects, and teams are grouped below in a table. Only hierarchy items visible to your account are listed.</p>
+        <div id="hierarchy-inventory" class="hierarchy-inventory"></div>
+      </section>
+      <section class="configuration-card" aria-labelledby="hierarchy-create-title">
+        <h2 id="hierarchy-create-title">Build your hierarchy</h2>
+        <div class="hierarchy-create-grid">
+          <form id="hierarchy-organization-form" class="hierarchy-create-form">
+            <label class="intake-field"><span>Organization</span><input name="name" maxlength="200" required placeholder="Organization name"></label>
+            <button class="button button-secondary" type="submit">Add organization</button>
+          </form>
+          <form id="hierarchy-project-form" class="hierarchy-create-form">
+            <label class="intake-field"><span>Organization</span><select name="organizationId" required></select></label>
+            <label class="intake-field"><span>Project</span><input name="name" maxlength="200" required placeholder="Project name"></label>
+            <button class="button button-secondary" type="submit">Add project</button>
+          </form>
+          <form id="hierarchy-team-form" class="hierarchy-create-form">
+            <label class="intake-field"><span>Project</span><select name="projectId" required></select></label>
+            <label class="intake-field"><span>Team</span><input name="name" maxlength="200" required placeholder="Team name"></label>
+            <button class="button button-secondary" type="submit">Add team</button>
+          </form>
+        </div>
+      </section>
+      <section class="configuration-card" aria-labelledby="hierarchy-assign-title">
+        <h2 id="hierarchy-assign-title">Assign users to a scope</h2>
+        <form id="hierarchy-assignment-form" class="hierarchy-assignment-form">
+          <label class="intake-field"><span>User</span><select name="userId" required></select></label>
+          <label class="intake-field"><span>Scope level</span>
+            <select name="scopeType" required><option value="Organization">Organization</option><option value="Project">Project</option><option value="Team">Team</option></select>
+          </label>
+          <label class="intake-field"><span>Organization / project / team</span><select name="scopeId" required></select></label>
+          <label class="intake-field"><span>Role</span><select name="roleName" required></select></label>
+          <button class="button button-primary" type="submit">Save access</button>
+        </form>
+        <p class="intake-note">Read-only users can view assigned scope data. Leads can manage users and act only within their scope and allowed child scopes. Only root administrators can grant global administrator access.</p>
+        <div class="table-wrap hierarchy-assignment-table-wrap">
+          <table class="hierarchy-assignment-table">
+            <thead><tr><th>User</th><th>Scope</th><th>Role</th><th>Action</th></tr></thead>
+            <tbody id="hierarchy-assignment-rows"></tbody>
+          </table>
+        </div>
+      </section>
+      <section class="configuration-card" aria-labelledby="hierarchy-roles-title">
+        <h2 id="hierarchy-roles-title">Roles and access boundaries</h2>
+        <div class="hierarchy-role-list">
+          <article><strong>Root Admin</strong><span>Whole application, all organizations, projects, teams, settings, and actions.</span></article>
+          <article><strong>Org Lead</strong><span>Manage membership and actions within the assigned organization and its projects and teams.</span></article>
+          <article><strong>Project Lead</strong><span>Manage membership and actions within the assigned project and its teams.</span></article>
+          <article><strong>Team Lead</strong><span>Manage membership and actions within the assigned team.</span></article>
+          <article><strong>Read-only</strong><span>View data in the assigned scope without changing settings or workflow state.</span></article>
+        </div>
+      </section>
+    </section>
     <div id="review-workspace" hidden>
     <section class="intro">
       <div>
-        <p class="eyebrow">POWER BI PROJECT REVIEW</p>
+        <p class="eyebrow">PROJECT REVIEW</p>
         <h1>Review your model</h1>
         <p class="intro-copy">Review Power BI projects, inspect findings, and submit feedback.</p>
       </div>
     </section>
 
-    <nav id="review-page-navigation" class="governance-page-navigation" aria-label="Power BI Project Review pages">
+    <nav id="review-page-navigation" class="governance-page-navigation" aria-label="Project Review pages">
       <button class="governance-page-tab is-active" type="button" aria-current="page" data-review-page-tab="run">
         <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-play"></use></svg><span>Run review</span>
       </button>
@@ -137,9 +386,14 @@
         <div>
           <p class="eyebrow">PROJECT INPUT</p>
           <h2 id="project-intake-title">Review a Power BI project</h2>
-          <p class="dashboard-description">Choose a file from your device. The upload is processed by the review service and is not saved as a project file.</p>
+          <p class="dashboard-description">Upload a project file or scan a workspace you can access in Power BI.</p>
         </div>
       </div>
+      <nav class="review-source-tabs" aria-label="Project Review source">
+        <button class="review-source-tab is-active" type="button" aria-pressed="true" data-review-source-tab="upload">Upload project</button>
+        <button class="review-source-tab" type="button" aria-pressed="false" data-review-source-tab="online">Scan online workspace</button>
+      </nav>
+      <div data-review-source-panel="upload">
       <div class="intake-grid">
         <label class="intake-field upload-field">
           <span>PBIP project ZIP (preferred) or PBIT template · max 500 MB</span>
@@ -156,6 +410,21 @@
         <p><strong>Alternative — PBIT:</strong> upload the template directly. The review host must have a compatible pbi-tools executable configured; without it, extraction cannot run. PBIX files are not accepted.</p>
       </div>
       <p class="intake-note">Uploads are limited to 500 MB and ZIPs are expanded temporarily with file-count, size, and path-traversal checks; temporary files are removed after review. Only review summaries, findings, and submitted feedback are persisted to SQL.</p>
+      </div>
+      <div id="online-review-panel" class="online-review-panel" data-review-source-panel="online" hidden>
+        <p class="dashboard-description">Read-only scan using your own Power BI access. Only workspaces visible to your account are listed. Results are saved in your Project Review history.</p>
+        <div class="online-review-actions">
+          <button id="load-online-workspaces" class="button button-secondary" type="button">Load my workspaces</button>
+          <button id="authorize-online-powerbi" class="button button-secondary" type="button" hidden>Authorize Power BI access</button>
+        </div>
+        <label class="intake-field online-workspace-select"><span>Power BI workspace</span>
+          <select id="online-workspace-select" disabled><option value="">Load your accessible workspaces</option></select>
+        </label>
+        <p id="online-review-status" class="status" role="status" aria-live="polite">Power BI has not been connected for online review.</p>
+        <p id="online-review-error" class="error-banner" role="alert" hidden></p>
+        <p class="intake-note">Online review checks only metadata returned by Power BI. DAX, report visuals, some model schemas, and refresh details may be unavailable; the result identifies these evidence gaps. No Power BI content or permissions are changed.</p>
+        <button id="scan-online-workspace" class="button button-primary" type="button" disabled>Review selected workspace</button>
+      </div>
     </section>
     </section>
 
@@ -229,6 +498,7 @@
     </section>
 
     <section id="review-results-page" data-review-page="results" aria-label="Power BI project review results" hidden>
+    <p id="online-review-evidence" class="online-evidence-note" hidden></p>
     <section id="overview" class="overview" aria-label="Review summary" hidden>
       <div class="summary-card summary-project">
         <span class="summary-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3.5 7.5h7l2 2h8v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2v-11Z"/><path d="M3.5 7.5v-2a2 2 0 0 1 2-2h4l2 2h5"/></svg></span>
@@ -319,7 +589,21 @@
         <div id="findings-list" class="findings-list" aria-live="polite"></div>
       </div>
       <section id="submission-controls" class="submission-controls" aria-live="polite" hidden>
-        <p id="submission-status" class="dashboard-description"></p>
+        <div class="submission-controls-content">
+          <p id="submission-status" class="dashboard-description"></p>
+          <div id="reviewer-bulk-actions" class="reviewer-bulk-actions" hidden>
+            <label for="reviewer-bulk-disposition">Apply this decision to all findings</label>
+            <select id="reviewer-bulk-disposition">
+              <option value="">Choose a decision</option>
+              <option value="Accepted">Accepted</option>
+              <option value="NeedsChanges">Needs changes</option>
+              <option value="Noted">Noted</option>
+              <option value="IncorrectFinding">Incorrect finding</option>
+            </select>
+            <button id="apply-reviewer-bulk-disposition" class="button button-secondary button-small" type="button">Apply to all</button>
+            <span>Individual decisions can still be changed below.</span>
+          </div>
+        </div>
         <button id="submit-review-workflow" class="button button-primary" type="button" disabled><svg class="button-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m4 5 16 7-16 7 3-7-3-7Z"/><path d="M7 12h13"/></svg><span>Submit review</span></button>
       </section>
     </section>
@@ -339,15 +623,43 @@
         <p id="module-placeholder-status" class="dashboard-description"></p>
       </div>
     </section>
+    <section id="performance-workspace" class="module-placeholder performance-workspace" aria-labelledby="performance-title" hidden>
+      <header class="intro">
+        <div>
+          <p class="eyebrow">EVIDENCE-FIRST STATIC ANALYSIS</p>
+          <h1 id="performance-title">Performance Optimization</h1>
+          <p class="intro-copy">Inventory uploaded Power BI definitions and identify static optimization candidates. This assessment does not execute queries, collect tenant telemetry, or change Power BI content.</p>
+        </div>
+      </header>
+      <section class="configuration-card" aria-labelledby="performance-upload-title">
+        <h2 id="performance-upload-title">Run an assessment</h2>
+        <p class="dashboard-description">Upload a PBIP/PBIR project ZIP, PBIT template, Model.bim, a TMDL definition (or ZIP of TMDL files), or DAX. For full model and report inventory, include both semantic-model and report definitions.</p>
+        <form id="performance-assessment-form" class="performance-assessment-form">
+          <label for="performance-artifact">Power BI artifact</label>
+          <input id="performance-artifact" name="file" type="file" accept=".zip,.pbit,.bim,.tmdl,.dax" required>
+          <button id="run-performance-assessment" class="button button-primary" type="submit">
+            <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-speedometer"></use></svg>
+            <span>Generate assessment</span>
+          </button>
+        </form>
+        <p id="performance-assessment-status" class="status" role="status" aria-live="polite">No assessment has been run.</p>
+        <p id="performance-assessment-error" class="error-banner" role="alert" hidden></p>
+      </section>
+      <section id="performance-assessment-results" class="performance-assessment-results" aria-labelledby="performance-results-title" hidden>
+        <h2 id="performance-results-title">Performance Optimization Assessment</h2>
+        <p class="performance-evidence-note"><strong>Evidence boundary:</strong> static observations and hypotheses are not measured issues. No performance gain is claimed without benchmark evidence.</p>
+        <div id="performance-assessment-output" class="performance-assessment-output"></div>
+      </section>
+    </section>
     <section id="governance-workspace" class="module-placeholder" aria-labelledby="governance-title" hidden>
       <header class="intro">
         <div>
           <p class="eyebrow">POWER BI SERVICE INVENTORY</p>
-          <h1 id="governance-title">Governance Audit</h1>
+          <h1 id="governance-title">Governance</h1>
           <p class="intro-copy">Run a read-only inventory of explicitly approved Power BI workspaces, their access, reports, dashboards, and semantic models.</p>
         </div>
       </header>
-      <nav id="governance-page-navigation" class="governance-page-navigation" aria-label="Governance Audit pages">
+      <nav id="governance-page-navigation" class="governance-page-navigation" aria-label="Governance pages">
         <button id="governance-page-run-tab" class="governance-page-tab is-active" type="button" aria-current="page" data-governance-page-tab="run">
           <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#icon-play"></use></svg><span>Run audit</span>
         </button>
@@ -362,7 +674,7 @@
       <div class="configuration-card">
         <p id="governance-status" class="status" role="status" aria-live="polite">Authorize Power BI access and select an approved workspace to begin.</p>
         <p id="governance-error" class="error-banner" role="alert" hidden></p>
-        <p class="dashboard-description">Only the workspace IDs saved in Governance Audit Administration are scanned. The audit never changes Power BI content or access. Connect your Power BI account in the first step to begin.</p>
+        <p class="dashboard-description">Only the workspace IDs saved in Governance Administration are scanned. The audit never changes Power BI content or access. Connect your Power BI account in the first step to begin.</p>
         <div id="governance-workspace-load-status" class="governance-workspace-load-status" role="status" aria-live="polite" hidden>
           <span class="governance-inline-spinner" aria-hidden="true"></span>
           <span id="governance-workspace-load-message"></span>
@@ -375,7 +687,7 @@
         </nav>
         <section id="governance-scan-panel-access" class="configuration-card governance-scan-panel" role="tabpanel" aria-labelledby="governance-scan-tab-access" data-governance-scan-panel="access">
           <h2>Connect to Power BI</h2>
-          <p class="dashboard-description">Governance Audit reads Power BI using your signed-in account. This is separate from signing in to BI Sentinel and does not grant write access.</p>
+          <p class="dashboard-description">Governance reads Power BI using your signed-in account. This is separate from signing in to BI Sentinel and does not grant write access.</p>
           <div id="governance-powerbi-access-status" class="governance-access-status" role="status" aria-live="polite">
             <span class="governance-status-icon" aria-hidden="true"></span>
             <span>Checking delegated Power BI access…</span>
@@ -465,7 +777,7 @@
           <thead><tr><th>Completed</th><th>Scanned by</th><th>Workspaces</th><th>Reports</th><th>Dashboards</th><th>Semantic models</th><th>Apps</th><th>Gateways</th><th>Findings</th><th>Action</th></tr></thead>
           <tbody id="governance-history-rows"></tbody>
         </table></div>
-        <p id="governance-history-empty" class="dashboard-empty" hidden>No saved Governance Audit runs yet.</p>
+        <p id="governance-history-empty" class="dashboard-empty" hidden>No saved Governance runs yet.</p>
         <p id="governance-history-error" class="error-banner" role="alert" hidden></p>
       </section>
       <section id="governance-results-page" class="governance-page" data-governance-page="results" aria-label="Governance audit results" hidden>
@@ -616,8 +928,8 @@
 
       <nav class="admin-tabs governance-page-navigation" role="tablist" aria-label="Administration settings by module">
         <a id="admin-tab-workspace" class="admin-tab governance-page-tab" href="/admin/workspace" role="tab" data-admin-tab="workspace" aria-controls="admin-panel-workspace"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-workspace"></use></svg><span>Workspace</span></a>
-        <a id="admin-tab-reviews" class="admin-tab governance-page-tab" href="/admin/reviews" role="tab" data-admin-tab="reviews" aria-controls="admin-panel-reviews"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-review"></use></svg><span>Power BI Project Review</span></a>
-        <a id="admin-tab-governance" class="admin-tab governance-page-tab" href="/admin/governance-audit" role="tab" data-admin-tab="governanceAudit" aria-controls="admin-panel-governanceAudit"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-shield"></use></svg><span>Governance Audit</span></a>
+        <a id="admin-tab-reviews" class="admin-tab governance-page-tab" href="/admin/reviews" role="tab" data-admin-tab="reviews" aria-controls="admin-panel-reviews"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-review"></use></svg><span>Project Review</span></a>
+        <a id="admin-tab-governance" class="admin-tab governance-page-tab" href="/admin/governance-audit" role="tab" data-admin-tab="governanceAudit" aria-controls="admin-panel-governanceAudit"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-shield"></use></svg><span>Governance</span></a>
         <a id="admin-tab-performance" class="admin-tab governance-page-tab" href="/admin/performance-optimization" role="tab" data-admin-tab="performanceOptimization" aria-controls="admin-panel-performanceOptimization"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-speedometer"></use></svg><span>Performance Optimization</span></a>
         <a id="admin-tab-release" class="admin-tab governance-page-tab" href="/admin/release-readiness" role="tab" data-admin-tab="releaseReadiness" aria-controls="admin-panel-releaseReadiness"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-list-check"></use></svg><span>Release Readiness</span></a>
         <a id="admin-tab-documentation" class="admin-tab governance-page-tab" href="/admin/documentation-generator" role="tab" data-admin-tab="documentationGenerator" aria-controls="admin-panel-documentationGenerator"><svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-document"></use></svg><span>Documentation Generator</span></a>
@@ -684,7 +996,7 @@
           <p class="dashboard-description">Enable or disable each rule and select its finding severity. Adding new rule logic requires an application code change.</p>
           <div id="rule-policy-list" class="rule-policy-list"></div>
         </section>
-        <p class="dashboard-description">This action saves Power BI Project Review standards and rules only.</p>
+        <p class="dashboard-description">This action saves Project Review standards and rules only.</p>
         <div class="configuration-actions">
           <button class="button button-primary" type="button" data-configuration-section="reviews">Save review settings</button>
         </div>
@@ -693,7 +1005,7 @@
         <section id="admin-panel-governanceAudit" class="admin-tab-panel" role="tabpanel" aria-labelledby="admin-tab-governance" data-admin-panel="governanceAudit" hidden>
           <div class="configuration-card">
             <p class="eyebrow">GOVERNANCE AUDIT</p>
-            <h2>Governance Audit settings</h2>
+            <h2>Governance settings</h2>
             <p class="dashboard-description">Discover workspaces visible to the configured Power BI identity, then save an explicit allowlist. Only saved workspaces are scanned. Maximum scope is controlled by the server.</p>
             <p id="governance-config-status" class="status" role="status" aria-live="polite">Governance configuration has not been loaded.</p>
             <p id="governance-config-error" class="error-banner" role="alert" hidden></p>
@@ -710,7 +1022,7 @@
             </label>
             <p id="governance-config-version" class="dashboard-description">Configuration version not loaded.</p>
             <div class="configuration-actions">
-              <button id="save-governance-configuration" class="button button-primary" type="button">Save Governance Audit scope</button>
+              <button id="save-governance-configuration" class="button button-primary" type="button">Save Governance scope</button>
             </div>
           </div>
         </section>
@@ -719,8 +1031,8 @@
           <div class="configuration-card admin-module-placeholder">
             <p class="eyebrow">PERFORMANCE OPTIMIZATION</p>
             <h2>Performance Optimization settings</h2>
-            <p class="dashboard-description">Configuration for DAX analysis, model design, cardinality, refresh operations, and performance thresholds will be added here as this module is implemented.</p>
-            <p class="admin-module-status">No Performance Optimization settings are available yet. Its workspace availability is controlled in the Workspace tab.</p>
+            <p class="dashboard-description">The current assessment is static and evidence-first. It does not expose configurable performance thresholds or connect to live Power BI telemetry.</p>
+            <p class="admin-module-status">Enable or disable this module in the Workspace tab. Runtime metrics require a separately approved data source and validation plan.</p>
           </div>
         </section>
 
@@ -783,7 +1095,7 @@
       </form>
     </section>
     <footer>
-      <span>BI Sentinel · BI workspace</span>
+      <span>BI Sentinel</span>
       <span>Review results do not modify your Power BI project.</span>
     </footer>
     </main>

@@ -10,7 +10,7 @@ public sealed class PbipProjectReader : IPbipProjectReader
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private static readonly Regex ColumnDeclaration = new(
-        @"^\s*column\s+(?:'(?<quoted>[^']+)'|(?<plain>[^=\s]+))",
+        @"^\s*column\s+(?:'(?<quoted>[^']+)'|(?<plain>[^=\s]+))(?<calculated>\s*=\s*(?<inline>.*))?",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private static readonly Regex MeasureDeclaration = new(
@@ -23,6 +23,18 @@ public sealed class PbipProjectReader : IPbipProjectReader
 
     private static readonly Regex RelationshipEndpoint = new(
         @"^(?:'(?<quotedTable>[^']+)'|(?<plainTable>[^.]+))\.(?:'(?<quotedColumn>[^']+)'|(?<plainColumn>.+))$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex PartitionDeclaration = new(
+        @"^\s*partition\s+(?:'(?<quoted>[^']+)'|(?<plain>[^\s=]+))\s*=\s*(?<sourceType>\w+)",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex HierarchyDeclaration = new(
+        @"^\s*hierarchy\s+(?:'(?<quoted>[^']+)'|(?<plain>[^\s=]+))",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    private static readonly Regex HierarchyLevelDeclaration = new(
+        @"^\s*level\s+(?:'(?<quoted>[^']+)'|(?<plain>[^\s=]+))",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
     private static readonly Regex MeasureMetadata = new(
@@ -41,6 +53,19 @@ public sealed class PbipProjectReader : IPbipProjectReader
             Path.GetExtension(fullPath).Equals(".pbip", StringComparison.OrdinalIgnoreCase)
                 ? fullPath
                 : null;
+        if (File.Exists(fullPath) &&
+            !Path.GetExtension(fullPath).Equals(".pbip", StringComparison.OrdinalIgnoreCase))
+        {
+            return Path.GetExtension(fullPath).ToLowerInvariant() switch
+            {
+                ".bim" => ReadModelBim(fullPath),
+                ".tmdl" => ReadTmdlFile(fullPath),
+                ".dax" => ReadDaxFile(fullPath),
+                _ => throw new InvalidDataException(
+                    "Upload a PBIP/PBIR project, PBIT template, Model.bim, TMDL, or DAX file.")
+            };
+        }
+
         if (selectedProjectFile is null && !Directory.Exists(fullPath))
         {
             throw new InvalidDataException("The selected Power BI project folder does not exist.");
@@ -59,6 +84,16 @@ public sealed class PbipProjectReader : IPbipProjectReader
 
         if (projectFiles.Length == 0)
         {
+            var bimFiles = Directory.GetFiles(projectRoot, "*.bim", SearchOption.AllDirectories);
+            if (bimFiles.Length == 1)
+            {
+                return ReadModelBim(bimFiles[0], projectRoot);
+            }
+            if (bimFiles.Length > 1)
+            {
+                throw new InvalidDataException("The uploaded project contains more than one Model.bim file.");
+            }
+
             if (File.Exists(Path.Combine(projectRoot, ".pbixproj.json")))
             {
                 return ReadExtractedProject(projectRoot);
@@ -69,8 +104,19 @@ public sealed class PbipProjectReader : IPbipProjectReader
                 return ReadPbirProject(projectRoot);
             }
 
+            if (Directory.GetFiles(projectRoot, "*.tmdl", SearchOption.AllDirectories).Length > 0)
+            {
+                return ReadExtractedProject(projectRoot);
+            }
+
+            var daxFiles = Directory.GetFiles(projectRoot, "*.dax", SearchOption.AllDirectories);
+            if (daxFiles.Length > 0)
+            {
+                return ReadDaxFiles(projectRoot, daxFiles);
+            }
+
             throw new InvalidDataException(
-                "The selected folder is not a supported PBIP project, standalone PBIR report, or extracted Power BI model.");
+                "The selected folder does not contain a supported PBIP/PBIR project, Model.bim, TMDL model, or DAX file.");
         }
 
         using var projectDescriptor = ParseJson(projectFiles[0], "The PBIP project descriptor is not valid JSON.");
@@ -108,12 +154,16 @@ public sealed class PbipProjectReader : IPbipProjectReader
             ? ParseRelationships(relationshipsFile)
             : [];
 
+        var reportFiles = ReadReportFiles(Path.Combine(reportDirectory, "definition"), projectRoot);
         return new PbipProjectModel(
             Path.GetFileNameWithoutExtension(projectFiles[0]),
             requiredFiles,
             tables,
             PbipProjectMetadata.DeduplicateRelationships(relationships),
-            ReportReferences: ReadReportReferences(Path.Combine(reportDirectory, "definition")));
+            ReportReferences: reportFiles.Select(file => file.Content).ToArray())
+        {
+            ReportFiles = reportFiles
+        };
     }
 
     private static PbipProjectModel ReadPbirProject(string projectRoot)
@@ -133,12 +183,17 @@ public sealed class PbipProjectReader : IPbipProjectReader
                 $"The standalone PBIR report is missing valid JSON file '{Path.GetRelativePath(projectRoot, requiredFile)}'.");
         }
 
+        var reportFiles = ReadReportFiles(definitionDirectory, projectRoot);
         return new PbipProjectModel(
             Path.GetFileName(projectRoot),
             requiredFiles,
             [],
             [],
-            HasSemanticModel: false);
+            HasSemanticModel: false,
+            ReportReferences: reportFiles.Select(file => file.Content).ToArray())
+        {
+            ReportFiles = reportFiles
+        };
     }
 
     private static PbipProjectModel ReadExtractedProject(string projectRoot)
@@ -162,11 +217,18 @@ public sealed class PbipProjectReader : IPbipProjectReader
                 .Where(path => Path.GetFileName(path).Equals("relationships.tmdl", StringComparison.OrdinalIgnoreCase))
                 .SelectMany(ParseRelationships));
 
+        var reportFiles = ReadReportFilesFromProject(projectRoot);
         return new PbipProjectModel(
             Path.GetFileName(projectRoot),
             [],
             tables,
-            relationships);
+            relationships,
+            ReportReferences: reportFiles.Count == 0
+                ? null
+                : reportFiles.Select(file => file.Content).ToArray())
+        {
+            ReportFiles = reportFiles
+        };
     }
 
     private static JsonDocument ParseJson(string path, string errorMessage)
@@ -221,13 +283,6 @@ public sealed class PbipProjectReader : IPbipProjectReader
             "The PBIP report must reference a semantic model by project path for this review.");
     }
 
-    private static IReadOnlyList<string>? ReadReportReferences(string reportDefinitionDirectory) =>
-        Directory.Exists(reportDefinitionDirectory)
-            ? Directory.GetFiles(reportDefinitionDirectory, "*.json", SearchOption.AllDirectories)
-                .Select(File.ReadAllText)
-                .ToArray()
-            : null;
-
     private static string ResolveDirectory(string baseDirectory, string projectRoot, string relativePath)
     {
         if (Path.IsPathRooted(relativePath))
@@ -279,14 +334,79 @@ public sealed class PbipProjectReader : IPbipProjectReader
             throw new InvalidDataException($"A TMDL table definition is invalid: {Path.GetFileName(path)}.");
         }
 
-        var columns = lines
-            .Select(line => ColumnDeclaration.Match(line))
-            .Where(static match => match.Success)
-            .Select(GetName)
-            .Select(static name => new ModelColumn(name))
-            .ToArray();
+        var partitions = ParsePartitions(lines);
+        return new ModelTable(
+            tableName,
+            Path.GetFileName(path),
+            ParseColumns(lines),
+            ParseMeasures(lines))
+        {
+            IsCalculated = partitions.Any(partition =>
+                string.Equals(partition.SourceType, "calculated", StringComparison.OrdinalIgnoreCase)),
+            Partitions = partitions,
+            Hierarchies = ParseHierarchies(lines)
+        };
+    }
 
-        return new ModelTable(tableName, Path.GetFileName(path), columns, ParseMeasures(lines));
+    private static IReadOnlyList<ModelColumn> ParseColumns(IReadOnlyList<string> lines)
+    {
+        var columns = new List<ModelColumn>();
+        for (var index = 0; index < lines.Count; index++)
+        {
+            var declaration = ColumnDeclaration.Match(lines[index]);
+            if (!declaration.Success)
+            {
+                continue;
+            }
+
+            var name = GetName(declaration);
+            var isCalculated = declaration.Groups["calculated"].Success;
+            string? dataType = null;
+            var isHidden = false;
+            var expression = new List<string>();
+            if (!string.IsNullOrWhiteSpace(declaration.Groups["inline"].Value))
+            {
+                expression.Add(declaration.Groups["inline"].Value.Trim());
+            }
+            for (var next = index + 1; next < lines.Count; next++)
+            {
+                var line = lines[next];
+                if (TableDeclaration.IsMatch(line) ||
+                    ColumnDeclaration.IsMatch(line) ||
+                    MeasureDeclaration.IsMatch(line) ||
+                    PartitionDeclaration.IsMatch(line) ||
+                    HierarchyDeclaration.IsMatch(line))
+                {
+                    break;
+                }
+
+                if (TryReadProperty(line, "dataType", out var typeValue))
+                {
+                    dataType = typeValue;
+                }
+                else if (TryReadProperty(line, "isHidden", out var hiddenValue))
+                {
+                    isHidden = bool.TryParse(hiddenValue, out var hidden) && hidden;
+                }
+                else if (Regex.IsMatch(line, @"^\s*[A-Za-z][A-Za-z0-9.]*:\s*"))
+                {
+                    continue;
+                }
+                else if (isCalculated && !string.IsNullOrWhiteSpace(line))
+                {
+                    expression.Add(line);
+                }
+            }
+
+            columns.Add(new ModelColumn(
+                name,
+                dataType,
+                isCalculated,
+                isCalculated ? string.Join(Environment.NewLine, expression).Trim() : null,
+                isHidden));
+        }
+
+        return columns;
     }
 
     private static IReadOnlyList<ModelMeasure> ParseMeasures(IReadOnlyList<string> lines)
@@ -343,14 +463,282 @@ public sealed class PbipProjectReader : IPbipProjectReader
                 var body = match.Groups["body"].Value;
                 var from = ReadRelationshipProperty(body, "fromColumn");
                 var to = ReadRelationshipProperty(body, "toColumn");
+                var fromCardinality = ReadOptionalProperty(body, "fromCardinality");
+                var toCardinality = ReadOptionalProperty(body, "toCardinality");
+                var isActive = bool.TryParse(ReadOptionalProperty(body, "isActive"), out var active)
+                    ? active
+                    : (bool?)null;
+                var crossFilteringBehavior = ReadOptionalProperty(body, "crossFilteringBehavior");
                 return new ModelRelationship(
                     from.Table,
                     from.Column,
                     to.Table,
                     to.Column,
-                    body.Contains("crossFilteringBehavior: bothDirections", StringComparison.OrdinalIgnoreCase));
+                    string.Equals(
+                        crossFilteringBehavior,
+                        "bothDirections",
+                        StringComparison.OrdinalIgnoreCase),
+                    fromCardinality,
+                    toCardinality,
+                    isActive,
+                    crossFilteringBehavior);
             })
             .ToArray();
+    }
+
+    private static IReadOnlyList<ModelPartition> ParsePartitions(IReadOnlyList<string> lines)
+    {
+        var partitions = new List<ModelPartition>();
+        for (var index = 0; index < lines.Count; index++)
+        {
+            var declaration = PartitionDeclaration.Match(lines[index]);
+            if (!declaration.Success)
+            {
+                continue;
+            }
+
+            var mode = (string?)null;
+            for (var next = index + 1; next < lines.Count; next++)
+            {
+                if (TableDeclaration.IsMatch(lines[next]) ||
+                    ColumnDeclaration.IsMatch(lines[next]) ||
+                    MeasureDeclaration.IsMatch(lines[next]) ||
+                    PartitionDeclaration.IsMatch(lines[next]) ||
+                    HierarchyDeclaration.IsMatch(lines[next]))
+                {
+                    break;
+                }
+
+                if (TryReadProperty(lines[next], "mode", out var modeValue))
+                {
+                    mode = modeValue;
+                }
+            }
+
+            partitions.Add(new ModelPartition(
+                GetName(declaration),
+                mode,
+                declaration.Groups["sourceType"].Value));
+        }
+
+        return partitions;
+    }
+
+    private static IReadOnlyList<ModelHierarchy> ParseHierarchies(IReadOnlyList<string> lines)
+    {
+        var hierarchies = new List<ModelHierarchy>();
+        for (var index = 0; index < lines.Count; index++)
+        {
+            var declaration = HierarchyDeclaration.Match(lines[index]);
+            if (!declaration.Success)
+            {
+                continue;
+            }
+
+            var levels = new List<string>();
+            for (var next = index + 1; next < lines.Count; next++)
+            {
+                if (TableDeclaration.IsMatch(lines[next]) ||
+                    ColumnDeclaration.IsMatch(lines[next]) ||
+                    MeasureDeclaration.IsMatch(lines[next]) ||
+                    PartitionDeclaration.IsMatch(lines[next]) ||
+                    HierarchyDeclaration.IsMatch(lines[next]))
+                {
+                    break;
+                }
+
+                var level = HierarchyLevelDeclaration.Match(lines[next]);
+                if (level.Success)
+                {
+                    levels.Add(GetName(level));
+                }
+            }
+
+            hierarchies.Add(new ModelHierarchy(GetName(declaration), levels));
+        }
+
+        return hierarchies;
+    }
+
+    private static PbipProjectModel ReadTmdlFile(string path)
+    {
+        var relationships = Path.GetFileName(path).Equals("relationships.tmdl", StringComparison.OrdinalIgnoreCase)
+            ? ParseRelationships(path)
+            : [];
+        ModelTable[] tables = File.ReadLines(path).Any(line => TableDeclaration.IsMatch(line))
+            ? [ParseTable(path)]
+            : [];
+        if (tables.Length == 0 && relationships.Count == 0)
+        {
+            throw new InvalidDataException("The TMDL file does not contain a table or relationship definition.");
+        }
+
+        return new PbipProjectModel(
+            Path.GetFileNameWithoutExtension(path),
+            [],
+            tables,
+            relationships,
+            HasSemanticModel: true);
+    }
+
+    private static PbipProjectModel ReadDaxFile(string path) =>
+        ReadDaxFiles(Path.GetDirectoryName(path)!, [path]);
+
+    private static PbipProjectModel ReadDaxFiles(string root, IEnumerable<string> daxFiles)
+    {
+        var measures = daxFiles
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .Select(path => new ModelMeasure(
+                Path.GetFileNameWithoutExtension(path),
+                File.ReadAllText(path)))
+            .ToArray();
+        return new PbipProjectModel(
+            Path.GetFileName(root),
+            [],
+            [new ModelTable("DAX", "DAX", [], measures)],
+            [],
+            HasSemanticModel: false);
+    }
+
+    private static PbipProjectModel ReadModelBim(string path, string? projectRoot = null)
+    {
+        using var document = ParseJson(path, "The Model.bim file is not valid JSON.");
+        var model = TryGetProperty(document.RootElement, "model", out var modelElement)
+            ? modelElement
+            : document.RootElement;
+        var tables = TryGetProperty(model, "tables", out var tablesElement) &&
+            tablesElement.ValueKind == JsonValueKind.Array
+                ? tablesElement.EnumerateArray().Select(ParseBimTable).ToArray()
+                : [];
+        var relationships = TryGetProperty(model, "relationships", out var relationshipsElement) &&
+            relationshipsElement.ValueKind == JsonValueKind.Array
+                ? relationshipsElement.EnumerateArray().Select(ParseBimRelationship).ToArray()
+                : [];
+        if (tables.Length == 0)
+        {
+            throw new InvalidDataException("The Model.bim file does not contain semantic-model tables.");
+        }
+
+        var reportDefinition = projectRoot is null ? null : FindReportDefinitionDirectory(projectRoot);
+        var reportFiles = reportDefinition is null
+            ? []
+            : ReadReportFiles(reportDefinition, projectRoot!);
+        return new PbipProjectModel(
+            ReadString(model, "name") ?? Path.GetFileNameWithoutExtension(path),
+            [],
+            PbipProjectMetadata.DeduplicateTables(tables),
+            PbipProjectMetadata.DeduplicateRelationships(relationships),
+            ReportReferences: reportFiles.Count == 0
+                ? null
+                : reportFiles.Select(file => file.Content).ToArray())
+        {
+            ReportFiles = reportFiles
+        };
+    }
+
+    private static ModelTable ParseBimTable(JsonElement table)
+    {
+        var name = ReadString(table, "name")
+            ?? throw new InvalidDataException("A Model.bim table is missing its name.");
+        var columns = ReadArray(table, "columns")
+            .Select(column => new ModelColumn(
+                ReadString(column, "name") ?? "Unknown",
+                ReadString(column, "dataType"),
+                string.Equals(ReadString(column, "type"), "calculated", StringComparison.OrdinalIgnoreCase) ||
+                    ReadString(column, "expression") is not null,
+                ReadString(column, "expression"),
+                ReadBoolean(column, "isHidden") ?? false))
+            .ToArray();
+        var measures = ReadArray(table, "measures")
+            .Select(measure => new ModelMeasure(
+                ReadString(measure, "name") ?? "Unknown",
+                ReadString(measure, "expression") ?? string.Empty))
+            .ToArray();
+        var partitions = ReadArray(table, "partitions")
+            .Select(partition =>
+            {
+                var sourceType = TryGetProperty(partition, "source", out var source)
+                    ? ReadString(source, "type")
+                    : null;
+                return new ModelPartition(
+                    ReadString(partition, "name") ?? name,
+                    ReadString(partition, "mode"),
+                    sourceType);
+            })
+            .ToArray();
+        var hierarchies = ReadArray(table, "hierarchies")
+            .Select(hierarchy => new ModelHierarchy(
+                ReadString(hierarchy, "name") ?? "Unknown",
+                ReadArray(hierarchy, "levels")
+                    .Select(level => ReadString(level, "name") ?? "Unknown")
+                    .ToArray()))
+            .ToArray();
+        return new ModelTable(name, name, columns, measures)
+        {
+            IsCalculated = partitions.Any(partition =>
+                string.Equals(partition.SourceType, "calculated", StringComparison.OrdinalIgnoreCase)),
+            Partitions = partitions,
+            Hierarchies = hierarchies
+        };
+    }
+
+    private static ModelRelationship ParseBimRelationship(JsonElement relationship)
+    {
+        var fromTable = ReadString(relationship, "fromTable")
+            ?? throw new InvalidDataException("A Model.bim relationship is missing its fromTable.");
+        var fromColumn = ReadString(relationship, "fromColumn")
+            ?? throw new InvalidDataException("A Model.bim relationship is missing its fromColumn.");
+        var toTable = ReadString(relationship, "toTable")
+            ?? throw new InvalidDataException("A Model.bim relationship is missing its toTable.");
+        var toColumn = ReadString(relationship, "toColumn")
+            ?? throw new InvalidDataException("A Model.bim relationship is missing its toColumn.");
+        var behavior = ReadString(relationship, "crossFilteringBehavior");
+        return new ModelRelationship(
+            fromTable,
+            fromColumn,
+            toTable,
+            toColumn,
+            string.Equals(behavior, "bothDirections", StringComparison.OrdinalIgnoreCase),
+            ReadString(relationship, "fromCardinality"),
+            ReadString(relationship, "toCardinality"),
+            ReadBoolean(relationship, "isActive"),
+            behavior);
+    }
+
+    private static IReadOnlyList<ModelReportFile> ReadReportFiles(string reportDirectory, string projectRoot) =>
+        Directory.Exists(reportDirectory)
+            ? Directory.GetFiles(reportDirectory, "*.json", SearchOption.AllDirectories)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .Select(path => new ModelReportFile(
+                    Path.GetRelativePath(projectRoot, path),
+                    File.ReadAllText(path)))
+                .ToArray()
+            : [];
+
+    private static IReadOnlyList<ModelReportFile> ReadReportFilesFromProject(string projectRoot)
+    {
+        var reportDirectory = FindReportDefinitionDirectory(projectRoot);
+        return reportDirectory is null ? [] : ReadReportFiles(reportDirectory, projectRoot);
+    }
+
+    private static string? FindReportDefinitionDirectory(string projectRoot)
+    {
+        var reportDescriptors = Directory.GetFiles(projectRoot, "definition.pbir", SearchOption.AllDirectories)
+            .Where(path =>
+            {
+                var reportRoot = Path.GetDirectoryName(path)!;
+                return File.Exists(Path.Combine(reportRoot, "definition", "report.json")) &&
+                    File.Exists(Path.Combine(reportRoot, "definition", "pages", "pages.json"));
+            })
+            .ToArray();
+        if (reportDescriptors.Length > 1)
+        {
+            throw new InvalidDataException("The uploaded artifact contains more than one report definition.");
+        }
+
+        return reportDescriptors.Length == 0
+            ? null
+            : Path.Combine(Path.GetDirectoryName(reportDescriptors[0])!, "definition");
     }
 
     private static (string Table, string Column) ReadRelationshipProperty(string body, string property)
@@ -378,6 +766,62 @@ public sealed class PbipProjectReader : IPbipProjectReader
             : endpoint.Groups["plainColumn"].Value.Trim();
         return (table, column);
     }
+
+    private static string? ReadOptionalProperty(string body, string property)
+    {
+        var match = Regex.Match(
+            body,
+            $@"(?m)^\s*{Regex.Escape(property)}:\s*(.+?)\s*$",
+            RegexOptions.CultureInvariant);
+        return match.Success ? match.Groups[1].Value.Trim() : null;
+    }
+
+    private static bool TryReadProperty(string line, string property, out string value)
+    {
+        var match = Regex.Match(
+            line,
+            $@"^\s*{Regex.Escape(property)}:\s*(.*?)\s*$",
+            RegexOptions.CultureInvariant);
+        value = match.Success ? match.Groups[1].Value.Trim() : string.Empty;
+        return match.Success;
+    }
+
+    private static bool TryGetProperty(JsonElement element, string property, out JsonElement value)
+    {
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            value = default;
+            return false;
+        }
+
+        foreach (var candidate in element.EnumerateObject())
+        {
+            if (string.Equals(candidate.Name, property, StringComparison.OrdinalIgnoreCase))
+            {
+                value = candidate.Value;
+                return true;
+            }
+        }
+
+        value = default;
+        return false;
+    }
+
+    private static string? ReadString(JsonElement element, string property) =>
+        TryGetProperty(element, property, out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+
+    private static bool? ReadBoolean(JsonElement element, string property) =>
+        TryGetProperty(element, property, out var value) &&
+        value.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? value.GetBoolean()
+            : null;
+
+    private static IReadOnlyList<JsonElement> ReadArray(JsonElement element, string property) =>
+        TryGetProperty(element, property, out var value) && value.ValueKind == JsonValueKind.Array
+            ? value.EnumerateArray().ToArray()
+            : [];
 
     private static string GetName(Match match) =>
         match.Groups["quoted"].Success
@@ -409,8 +853,25 @@ internal static class PbipProjectMetadata
                         .First())
                     .OrderBy(measure => measure.Name, StringComparer.OrdinalIgnoreCase)
                     .ToArray();
+                var partitions = candidates
+                    .SelectMany(table => table.Partitions)
+                    .GroupBy(partition => partition.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => group.First())
+                    .ToArray();
+                var hierarchies = candidates
+                    .SelectMany(table => table.Hierarchies)
+                    .GroupBy(hierarchy => hierarchy.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(group => group.First())
+                    .ToArray();
 
-                return candidates[0] with { Columns = columns, Measures = measures };
+                return candidates[0] with
+                {
+                    Columns = columns,
+                    Measures = measures,
+                    IsCalculated = candidates.Any(table => table.IsCalculated),
+                    Partitions = partitions,
+                    Hierarchies = hierarchies
+                };
             })
             .OrderBy(table => table.Name, StringComparer.OrdinalIgnoreCase)
             .ToArray();

@@ -1,5 +1,31 @@
 const reviewerStorageKey = "bi-sentinel.reviewerId.v1";
 const legacyReviewerStorageKey = "bitla.reviewerId.v1";
+const workspaceScopeStorageKey = "bi-sentinel.workspaceScope.v1";
+const fetchWithWorkspaceScope = window.fetch.bind(window);
+
+window.fetch = (input, init = {}) => {
+  const requestUrl = input instanceof Request ? input.url : String(input);
+  const path = new URL(requestUrl, window.location.href).pathname;
+  const selection = localStorage.getItem(workspaceScopeStorageKey);
+  if (!path.startsWith("/api/") ||
+      path === "/api/auth/session" ||
+      path === "/api/workspace/scopes" ||
+      !selection ||
+      selection === "all") {
+    return fetchWithWorkspaceScope(input, init);
+  }
+
+  const separator = selection.indexOf(":");
+  if (separator <= 0) {
+    localStorage.removeItem(workspaceScopeStorageKey);
+    return fetchWithWorkspaceScope(input, init);
+  }
+
+  const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
+  headers.set("X-BI-Sentinel-Scope-Type", selection.slice(0, separator));
+  headers.set("X-BI-Sentinel-Scope-Id", selection.slice(separator + 1));
+  return fetchWithWorkspaceScope(input, { ...init, headers });
+};
 
 const elements = {
   appLoadingIndicator: document.querySelector("#app-loading-indicator"),
@@ -15,6 +41,70 @@ const elements = {
   sidebarToggle: document.querySelector("#sidebar-toggle"),
   accountControls: document.querySelector("#account-controls"),
   accountName: document.querySelector("#account-name"),
+  accountEmail: document.querySelector("#account-email"),
+  accountInitial: document.querySelector("#account-initial"),
+  profileMenu: document.querySelector("#profile-menu"),
+  workspaceScopeControls: document.querySelector("#workspace-scope-controls"),
+  workspaceScopeSelect: document.querySelector("#workspace-scope-select"),
+  pageNavigations: [...document.querySelectorAll("[data-page-navigation]")],
+  dashboardWorkspace: document.querySelector("#dashboard-workspace"),
+  portalDashboardStatus: document.querySelector("#portal-dashboard-status"),
+  portalDashboardTiles: document.querySelector("#portal-dashboard-tiles"),
+  portalAdminOverview: document.querySelector("#portal-admin-overview"),
+  portalAdminMetrics: document.querySelector("#portal-admin-metrics"),
+  profileWorkspace: document.querySelector("#profile-workspace"),
+  accessRequestsNavigation: document.querySelector("#access-requests-menu-link"),
+  accessRequestsWorkspace: document.querySelector("#access-requests-workspace"),
+  accessRequestStatus: document.querySelector("#access-request-status"),
+  accessRequestError: document.querySelector("#access-request-error"),
+  accessRequestForm: document.querySelector("#access-request-form"),
+  accessRequestScopeType: document.querySelector("#access-request-scope-type"),
+  accessRequestScopeId: document.querySelector("#access-request-scope-id"),
+  accessRequestRole: document.querySelector("#access-request-role"),
+  accessRequestMessage: document.querySelector("#access-request-message"),
+  accessRequestApprovalFlow: document.querySelector("#access-request-approval-flow"),
+  refreshAccessRequests: document.querySelector("#refresh-access-requests"),
+  myAccessRequests: document.querySelector("#my-access-requests"),
+  myAccessRequestsEmpty: document.querySelector("#my-access-requests-empty"),
+  accessRequestInboxSection: document.querySelector("#access-request-inbox-section"),
+  accessRequestInboxStatus: document.querySelector("#access-request-inbox-status"),
+  accessRequestInbox: document.querySelector("#access-request-inbox"),
+  accessRequestInboxEmpty: document.querySelector("#access-request-inbox-empty"),
+  accessRequestSettingsSection: document.querySelector("#access-request-settings-section"),
+  accessRequestSettingsForm: document.querySelector("#access-request-settings-form"),
+  accessRequestEscalationDays: document.querySelector("#access-request-escalation-days"),
+  accessRequestSettingsStatus: document.querySelector("#access-request-settings-status"),
+  profileName: document.querySelector("#profile-name"),
+  profileEmail: document.querySelector("#profile-email"),
+  profileRoles: document.querySelector("#profile-roles"),
+  profileScopeLabel: document.querySelector("#profile-scope-label"),
+  profileScopeUserCount: document.querySelector("#profile-scope-user-count"),
+  profileScopeUsers: document.querySelector("#profile-scope-users"),
+  profileScopeUsersEmpty: document.querySelector("#profile-scope-users-empty"),
+  supportWorkspace: document.querySelector("#support-workspace"),
+  supportRequestForm: document.querySelector("#support-request-form"),
+  supportCategory: document.querySelector("#support-category"),
+  supportSubject: document.querySelector("#support-subject"),
+  supportMessage: document.querySelector("#support-message"),
+  submitSupportRequest: document.querySelector("#submit-support-request"),
+  supportFormStatus: document.querySelector("#support-form-status"),
+  supportFormError: document.querySelector("#support-form-error"),
+  supportRequestFormCard: document.querySelector("#support-request-form-card"),
+  supportQueueEyebrow: document.querySelector("#support-queue-eyebrow"),
+  supportRequestsStatus: document.querySelector("#support-requests-status"),
+  supportRequestsList: document.querySelector("#support-requests-list"),
+  supportRequestsEmpty: document.querySelector("#support-requests-empty"),
+  refreshSupportRequests: document.querySelector("#refresh-support-requests"),
+  hierarchyNavigation: document.querySelector("#hierarchy-navigation"),
+  hierarchyWorkspace: document.querySelector("#hierarchy-workspace"),
+  hierarchyStatus: document.querySelector("#hierarchy-status"),
+  hierarchyError: document.querySelector("#hierarchy-error"),
+  hierarchyOrganizationForm: document.querySelector("#hierarchy-organization-form"),
+  hierarchyProjectForm: document.querySelector("#hierarchy-project-form"),
+  hierarchyTeamForm: document.querySelector("#hierarchy-team-form"),
+  hierarchyAssignmentForm: document.querySelector("#hierarchy-assignment-form"),
+  hierarchyAssignmentRows: document.querySelector("#hierarchy-assignment-rows"),
+  hierarchyInventory: document.querySelector("#hierarchy-inventory"),
   reviewsNavigation: document.querySelector("#reviews-navigation"),
   administrationNavigation: document.querySelector("#administration-navigation"),
   moduleNavigations: [...document.querySelectorAll("[data-module-navigation]")],
@@ -22,6 +112,15 @@ const elements = {
   reviewWorkspace: document.querySelector("#review-workspace"),
   reviewPageTabs: [...document.querySelectorAll("[data-review-page-tab]")],
   reviewPages: [...document.querySelectorAll("[data-review-page]")],
+  reviewSourceTabs: [...document.querySelectorAll("[data-review-source-tab]")],
+  reviewSourcePanels: [...document.querySelectorAll("[data-review-source-panel]")],
+  loadOnlineWorkspaces: document.querySelector("#load-online-workspaces"),
+  authorizeOnlinePowerBi: document.querySelector("#authorize-online-powerbi"),
+  onlineWorkspaceSelect: document.querySelector("#online-workspace-select"),
+  onlineReviewStatus: document.querySelector("#online-review-status"),
+  onlineReviewError: document.querySelector("#online-review-error"),
+  scanOnlineWorkspace: document.querySelector("#scan-online-workspace"),
+  onlineReviewEvidence: document.querySelector("#online-review-evidence"),
   governanceWorkspace: document.querySelector("#governance-workspace"),
   governanceScanWorkspaces: document.querySelector("#governance-scan-workspaces"),
   governanceWorkspaceNameFilter: document.querySelector("#governance-workspace-name-filter"),
@@ -105,6 +204,14 @@ const elements = {
   modulePlaceholderTitle: document.querySelector("#module-placeholder-title"),
   modulePlaceholderDescription: document.querySelector("#module-placeholder-description"),
   modulePlaceholderStatus: document.querySelector("#module-placeholder-status"),
+  performanceWorkspace: document.querySelector("#performance-workspace"),
+  performanceAssessmentForm: document.querySelector("#performance-assessment-form"),
+  performanceArtifact: document.querySelector("#performance-artifact"),
+  runPerformanceAssessment: document.querySelector("#run-performance-assessment"),
+  performanceAssessmentStatus: document.querySelector("#performance-assessment-status"),
+  performanceAssessmentError: document.querySelector("#performance-assessment-error"),
+  performanceAssessmentResults: document.querySelector("#performance-assessment-results"),
+  performanceAssessmentOutput: document.querySelector("#performance-assessment-output"),
   adminConfiguration: document.querySelector("#admin-configuration"),
   adminTabs: [...document.querySelectorAll("[data-admin-tab]")],
   adminPanels: [...document.querySelectorAll("[data-admin-panel]")],
@@ -138,6 +245,9 @@ const elements = {
   dashboardDescription: document.querySelector("#dashboard-description"),
   submissionControls: document.querySelector("#submission-controls"),
   submissionStatus: document.querySelector("#submission-status"),
+  reviewerBulkActions: document.querySelector("#reviewer-bulk-actions"),
+  reviewerBulkDisposition: document.querySelector("#reviewer-bulk-disposition"),
+  applyReviewerBulkDisposition: document.querySelector("#apply-reviewer-bulk-disposition"),
   submitReviewWorkflow: document.querySelector("#submit-review-workflow"),
   exportButton: document.querySelector("#export-feedback"),
   exportFeedbackStatus: document.querySelector("#export-feedback-status"),
@@ -259,7 +369,7 @@ let configurationVersion = 0;
 let savedConfiguration = null;
 let governanceConfigurationVersion = 0;
 let moduleAvailability = null;
-let activeWorkspaceView = "reviews";
+let activeWorkspaceView = "dashboard";
 let governanceCheckCatalogLoaded = false;
 let governanceScanScopeLoaded = false;
 let governanceScanScopeLoadingPromise = null;
@@ -272,6 +382,9 @@ let governanceArtifactCatalogRequest = 0;
 let pendingGovernanceScan = null;
 let governanceScanPreparing = false;
 let applicationSession = null;
+let accessRequestScopes = [];
+let portalDashboardSummary = null;
+let onlineReviewWorkspaces = [];
 let governancePowerBiAuthorized = null;
 let governanceFindingFilter = "all";
 let governanceFindingCheckFilter = "";
@@ -287,6 +400,42 @@ const reviewerId = loadReviewerId();
 
 elements.sidebarToggle.addEventListener("click", toggleSidebar);
 elements.applicationStateRetry.addEventListener("click", () => window.location.reload());
+elements.workspaceScopeSelect.addEventListener("change", () => {
+  const selection = elements.workspaceScopeSelect.value;
+  if (selection === "all") {
+    localStorage.setItem(workspaceScopeStorageKey, "all");
+  } else if (selection) {
+    localStorage.setItem(workspaceScopeStorageKey, selection);
+  } else {
+    localStorage.removeItem(workspaceScopeStorageKey);
+  }
+  window.location.reload();
+});
+elements.accessRequestScopeType.addEventListener("change", renderAccessRequestRoleOptions);
+elements.accessRequestForm.addEventListener("submit", submitAccessRequest);
+elements.refreshAccessRequests.addEventListener("click", refreshAccessRequestPage);
+elements.accessRequestSettingsForm.addEventListener("submit", saveAccessRequestSettings);
+document.addEventListener("pointerdown", event => {
+  for (const popup of document.querySelectorAll("details[open]")) {
+    if (!popup.contains(event.target)) {
+      popup.open = false;
+    }
+  }
+});
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape") {
+    for (const popup of document.querySelectorAll("details[open]")) {
+      popup.open = false;
+    }
+  }
+});
+for (const dialog of document.querySelectorAll("dialog")) {
+  dialog.addEventListener("click", event => {
+    if (event.target === dialog) {
+      dialog.close();
+    }
+  });
+}
 for (const tab of elements.reviewPageTabs) {
   tab.addEventListener("click", () => navigateReviewPage(tab.dataset.reviewPageTab));
 }
@@ -296,6 +445,38 @@ for (const navigation of elements.moduleNavigations) {
     navigateWorkspace(navigation.dataset.moduleNavigation);
   });
 }
+for (const navigation of elements.pageNavigations) {
+  navigation.addEventListener("click", event => {
+    event.preventDefault();
+    elements.profileMenu.open = false;
+    navigateWorkspace(navigation.dataset.pageNavigation);
+  });
+}
+elements.hierarchyOrganizationForm.addEventListener("submit", event => {
+  event.preventDefault();
+  void createHierarchyItem("organizations", new FormData(elements.hierarchyOrganizationForm));
+});
+elements.hierarchyProjectForm.addEventListener("submit", event => {
+  event.preventDefault();
+  void createHierarchyItem("projects", new FormData(elements.hierarchyProjectForm));
+});
+elements.hierarchyTeamForm.addEventListener("submit", event => {
+  event.preventDefault();
+  void createHierarchyItem("teams", new FormData(elements.hierarchyTeamForm));
+});
+elements.hierarchyAssignmentForm.scopeType.addEventListener("change", renderHierarchyAssignmentOptions);
+elements.hierarchyAssignmentForm.scopeId.addEventListener("change", renderHierarchyAssignmentOptions);
+elements.hierarchyAssignmentForm.addEventListener("submit", event => {
+  event.preventDefault();
+  void saveHierarchyAssignment(new FormData(elements.hierarchyAssignmentForm));
+});
+elements.portalDashboardTiles.addEventListener("click", event => {
+  const tile = event.target.closest("[data-dashboard-module]");
+  if (tile) {
+    event.preventDefault();
+    navigateWorkspace(tile.dataset.dashboardModule);
+  }
+});
 elements.administrationNavigation.addEventListener("click", event => {
   event.preventDefault();
   navigateWorkspace("administration");
@@ -435,6 +616,21 @@ for (const button of elements.saveConfigurationButtons) {
   });
 }
 elements.uploadProject.addEventListener("click", uploadProject);
+for (const tab of elements.reviewSourceTabs) {
+  tab.addEventListener("click", () => setReviewSourceTab(tab.dataset.reviewSourceTab));
+}
+elements.loadOnlineWorkspaces.addEventListener("click", loadOnlineReviewWorkspaces);
+elements.authorizeOnlinePowerBi.addEventListener("click", () => {
+  window.location.assign("/api/reviews/online/signin");
+});
+elements.onlineWorkspaceSelect.addEventListener("change", () => {
+  elements.scanOnlineWorkspace.disabled = !elements.onlineWorkspaceSelect.value;
+});
+elements.scanOnlineWorkspace.addEventListener("click", runOnlineWorkspaceReview);
+elements.supportRequestForm.addEventListener("submit", submitSupportRequest);
+elements.refreshSupportRequests.addEventListener("click", loadSupportRequests);
+elements.applyReviewerBulkDisposition.addEventListener("click", applyReviewerBulkDisposition);
+elements.performanceAssessmentForm.addEventListener("submit", runPerformanceAssessment);
 elements.closeReviewError.addEventListener("click", () => elements.reviewErrorDialog.close());
 elements.openReviewResults.addEventListener("click", () => {
   elements.reviewSuccessDialog.close();
@@ -490,15 +686,15 @@ const modules = [
     key: "reviews",
     route: "/reviews",
     adminRoute: "/admin/reviews",
-    title: "Power BI Project Review",
-    description: "Review supported Power BI project uploads and inspect findings.",
+    title: "Project Review",
+    description: "Review supported Power BI project uploads or scan an accessible online workspace.",
     status: "This module is available."
   },
   {
     key: "governanceAudit",
     route: "/modules/governance-audit",
     adminRoute: "/admin/governance-audit",
-    title: "Governance Audit",
+    title: "Governance",
     description: "Inventory approved workspace access, reports, semantic models, and ownership coverage.",
     status: "Selected-workspace audits use your delegated Power BI read access. Sign in to authorize the required scopes before discovering or scanning workspaces."
   },
@@ -507,8 +703,8 @@ const modules = [
     route: "/modules/performance-optimization",
     adminRoute: "/admin/performance-optimization",
     title: "Performance Optimization",
-    description: "Assess DAX, dataset design, cardinality, refresh operations, and query performance.",
-    status: "Planned module. Performance analysis is not implemented yet."
+    description: "Run an evidence-first static assessment of Power BI model, DAX, and report definitions.",
+    status: "Static assessment is available when enabled. Runtime query, refresh, visual, and capacity metrics require separate telemetry."
   },
   {
     key: "releaseReadiness",
@@ -568,13 +764,22 @@ function setWorkspaceView(view) {
   const wasAdministration = activeWorkspaceView === "administration";
   const wasGovernanceAudit = activeWorkspaceView === "governanceAudit";
   const selectedModule = modules.find(module => module.key === view);
-  if (!isAdministration && (!selectedModule || !isModuleAvailableToCurrentUser(selectedModule))) {
+  const isPortalPage = ["dashboard", "profile", "support", "hierarchy", "accessRequests"].includes(view);
+  const isHierarchy = view === "hierarchy";
+  if (!isAdministration && !isPortalPage &&
+      (!selectedModule || !isModuleAvailableToCurrentUser(selectedModule))) {
     return;
   }
 
   activeWorkspaceView = view;
   elements.workspaceLoading.hidden = true;
+  elements.dashboardWorkspace.hidden = view !== "dashboard";
+  elements.accessRequestsWorkspace.hidden = view !== "accessRequests";
+  elements.profileWorkspace.hidden = view !== "profile";
+  elements.supportWorkspace.hidden = view !== "support";
+  elements.hierarchyWorkspace.hidden = !isHierarchy;
   const isReviews = view === "reviews";
+  const isPerformanceOptimization = view === "performanceOptimization";
   elements.reviewWorkspace.hidden = !isReviews;
   if (isReviews) {
     const requestedPage = new URLSearchParams(window.location.search).get("page");
@@ -582,7 +787,10 @@ function setWorkspaceView(view) {
   }
   const isGovernanceAudit = view === "governanceAudit";
   elements.governanceWorkspace.hidden = !isGovernanceAudit;
-  elements.modulePlaceholder.hidden = isAdministration || isReviews || isGovernanceAudit;
+  elements.performanceWorkspace.hidden = !isPerformanceOptimization;
+  elements.modulePlaceholder.hidden = isAdministration || isReviews || isGovernanceAudit ||
+    isPerformanceOptimization || isPortalPage;
+  elements.modulePlaceholder.hidden = elements.modulePlaceholder.hidden || isHierarchy;
   elements.adminConfiguration.hidden = !isAdministration;
   for (const navigation of elements.moduleNavigations) {
     const isCurrent = navigation.dataset.moduleNavigation === view;
@@ -599,7 +807,27 @@ function setWorkspaceView(view) {
   } else {
     elements.administrationNavigation.removeAttribute("aria-current");
   }
-  if (selectedModule && !isReviews) {
+  for (const navigation of elements.pageNavigations) {
+    const isCurrent = navigation.dataset.pageNavigation === view;
+    navigation.classList.toggle("active", isCurrent);
+    if (isCurrent) {
+      navigation.setAttribute("aria-current", "page");
+    } else {
+      navigation.removeAttribute("aria-current");
+    }
+  }
+  if (view === "dashboard") {
+    void loadPortalDashboardSummary();
+  } else if (view === "profile") {
+    renderProfileDetails();
+  } else if (view === "support") {
+    void loadSupportRequests();
+  } else if (isHierarchy) {
+    void loadOrganizationHierarchy();
+  } else if (view === "accessRequests") {
+    void loadAccessRequestPage();
+  }
+  if (selectedModule && !isReviews && !isPerformanceOptimization) {
     elements.modulePlaceholderEyebrow.textContent = "PLANNED MODULE";
     elements.modulePlaceholderTitle.textContent = selectedModule.title;
     elements.modulePlaceholderDescription.textContent = selectedModule.description;
@@ -620,19 +848,18 @@ function isModuleAvailableToCurrentUser(module) {
       applicationSession.isAdmin !== true);
 }
 
+function canManageHierarchy() {
+  return applicationSession?.isAdmin === true ||
+    applicationSession?.isOrgLead === true ||
+    applicationSession?.isProjectLead === true ||
+    applicationSession?.isTeamLead === true;
+}
+
 function showNoAvailableModules() {
-  activeWorkspaceView = "unavailable";
-  elements.workspaceLoading.hidden = true;
-  elements.reviewWorkspace.hidden = true;
-  elements.governanceWorkspace.hidden = true;
-  elements.adminConfiguration.hidden = true;
-  elements.modulePlaceholder.hidden = false;
-  elements.modulePlaceholderEyebrow.textContent = "NO MODULES AVAILABLE";
-  elements.modulePlaceholderTitle.textContent = "No workspace modules are enabled";
-  elements.modulePlaceholderDescription.textContent =
-    "There are no modules available for your account.";
-  elements.modulePlaceholderStatus.textContent =
-    "Contact your BI Sentinel administrator to enable a workspace module.";
+  setWorkspaceView("dashboard");
+  elements.portalDashboardStatus.hidden = false;
+  elements.portalDashboardStatus.textContent =
+    "No work modules are enabled for your account yet. Contact your BI Sentinel administrator for access.";
   for (const navigation of elements.moduleNavigations) {
     navigation.hidden = true;
   }
@@ -640,6 +867,30 @@ function showNoAvailableModules() {
 
 function routeWorkspaceFromLocation() {
   const route = window.location.pathname;
+  if (route === "/access-requests") {
+    setWorkspaceView("accessRequests");
+    return;
+  }
+  if (route === "/admin/hierarchy") {
+    if (canManageHierarchy()) {
+      setWorkspaceView("hierarchy");
+    } else {
+      navigateWorkspace("dashboard", true);
+    }
+    return;
+  }
+  if (route === "/" || route === "/dashboard") {
+    setWorkspaceView("dashboard");
+    return;
+  }
+  if (route === "/profile") {
+    setWorkspaceView("profile");
+    return;
+  }
+  if (route === "/support") {
+    setWorkspaceView("support");
+    return;
+  }
   if (route === "/admin" || route.startsWith("/admin/")) {
     if (applicationSession?.authenticationEnabled && !applicationSession.isAdmin) {
       const availableModule = modules.find(isModuleAvailableToCurrentUser);
@@ -662,6 +913,10 @@ function routeWorkspaceFromLocation() {
   const selectedModule = modules.find(module => module.route === route);
   if (selectedModule && isModuleAvailableToCurrentUser(selectedModule)) {
     setWorkspaceView(selectedModule.key);
+    if (selectedModule.key === "reviews" &&
+        new URLSearchParams(window.location.search).get("source") === "online") {
+      setReviewSourceTab("online");
+    }
     if (selectedModule.key === "governanceAudit") {
       const requestedPage = new URLSearchParams(window.location.search).get("page");
       setGovernancePage(requestedPage || "run");
@@ -669,12 +924,7 @@ function routeWorkspaceFromLocation() {
     return;
   }
 
-  const fallbackModule = modules.find(isModuleAvailableToCurrentUser);
-  if (fallbackModule) {
-    navigateWorkspace(fallbackModule.key, true);
-  } else {
-    showNoAvailableModules();
-  }
+  navigateWorkspace("dashboard", true);
 }
 
 function navigateWorkspace(view, replace = false) {
@@ -688,9 +938,16 @@ function navigateWorkspace(view, replace = false) {
     return;
   }
 
+  const routes = {
+    dashboard: "/",
+    profile: "/profile",
+    support: "/support",
+    hierarchy: "/admin/hierarchy",
+    accessRequests: "/access-requests"
+  };
   const route = view === "administration"
     ? "/admin/workspace"
-    : modules.find(module => module.key === view)?.route;
+    : routes[view] || modules.find(module => module.key === view)?.route;
   if (!route) {
     return;
   }
@@ -705,6 +962,18 @@ function navigateWorkspace(view, replace = false) {
   setWorkspaceView(view);
   if (view === "administration") {
     setAdministrationTab("workspace");
+  }
+}
+
+function setReviewSourceTab(source) {
+  const selectedSource = source === "online" ? "online" : "upload";
+  for (const tab of elements.reviewSourceTabs) {
+    const selected = tab.dataset.reviewSourceTab === selectedSource;
+    tab.classList.toggle("is-active", selected);
+    tab.setAttribute("aria-pressed", String(selected));
+  }
+  for (const panel of elements.reviewSourcePanels) {
+    panel.hidden = panel.dataset.reviewSourcePanel !== selectedSource;
   }
 }
 
@@ -887,6 +1156,663 @@ async function loadModuleNavigation() {
   }
 }
 
+async function loadPortalDashboardSummary() {
+  elements.portalDashboardStatus.hidden = false;
+  if (applicationSession?.isAdmin !== true &&
+      !localStorage.getItem(workspaceScopeStorageKey)) {
+    elements.portalDashboardStatus.textContent =
+      "Choose one of your assigned organizations, projects, or teams to load scoped dashboard data.";
+    elements.portalDashboardStatus.classList.remove("is-error");
+    elements.portalDashboardTiles.replaceChildren();
+    elements.portalAdminOverview.hidden = true;
+    return;
+  }
+
+  elements.portalDashboardStatus.textContent = "Loading your dashboard…";
+  try {
+    const response = await fetch("/api/dashboard/summary", {
+      headers: { Accept: "application/json" }
+    });
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Dashboard data could not be loaded."));
+    }
+
+    portalDashboardSummary = await response.json();
+    renderPortalDashboardTiles();
+    renderPortalAdminOverview();
+    elements.portalDashboardStatus.hidden = true;
+  } catch (error) {
+    elements.portalDashboardStatus.textContent =
+      error instanceof Error ? error.message : "Dashboard data could not be loaded.";
+    elements.portalDashboardStatus.classList.add("is-error");
+    elements.portalDashboardStatus.hidden = false;
+  }
+}
+
+function renderPortalDashboardTiles() {
+  const tiles = elements.portalDashboardTiles;
+  tiles.replaceChildren();
+  const iconIds = {
+    reviews: "icon-review",
+    governanceAudit: "icon-shield",
+    performanceOptimization: "icon-speedometer",
+    releaseReadiness: "icon-list-check",
+    documentationGenerator: "icon-document",
+    architectureReview: "icon-diagram",
+    biDeliveryManager: "icon-play"
+  };
+
+  for (const module of modules) {
+    const isGovernanceAdminOnly = module.key === "governanceAudit" &&
+      applicationSession?.isAdmin !== true;
+    const enabled = isModuleAvailableToCurrentUser(module);
+    const planned = module.status.startsWith("Planned module.");
+    let metric = planned ? "Soon" : "Off";
+    let metricLabel = planned ? "Coming soon" : "Module availability";
+    let note = planned ? "Planned for a future release." : "Ask an administrator to enable this module.";
+    if (isGovernanceAdminOnly) {
+      metric = "Admin";
+      metricLabel = "Administrator access";
+      note = "Governance tools are available to BI Sentinel administrators.";
+    } else if (enabled && module.key === "reviews") {
+      metric = String(portalDashboardSummary?.projectReviewCount ?? 0);
+      metricLabel = applicationSession?.isAdmin ? "All saved reviews" : "Your saved reviews";
+      note = "Review PBIP/PBIR uploads or scan an accessible Power BI workspace.";
+    } else if (enabled && module.key === "governanceAudit") {
+      metric = String(portalDashboardSummary?.governanceRunCount ?? 0);
+      metricLabel = "All audit runs";
+      note = "Review workspace governance and inventory.";
+    } else if (enabled && module.key === "performanceOptimization") {
+      metric = "Ready";
+      metricLabel = "Static assessment";
+      note = "Run evidence-first analysis; assessments are not yet saved as history.";
+    } else if (enabled) {
+      metric = "Open";
+      metricLabel = "Module available";
+      note = module.description;
+    }
+
+    const card = document.createElement(enabled && !isGovernanceAdminOnly ? "a" : "article");
+    card.className = "portal-module-tile";
+    if (enabled && !isGovernanceAdminOnly) {
+      card.href = module.route;
+      card.dataset.dashboardModule = module.key;
+    } else {
+      card.classList.add("is-disabled");
+    }
+    const icon = document.createElement("span");
+    icon.className = "portal-module-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = `<svg viewBox="0 0 16 16"><use href="#${iconIds[module.key]}"></use></svg>`;
+    const title = document.createElement("h2");
+    title.textContent = module.title;
+    const number = document.createElement("strong");
+    number.textContent = metric;
+    const label = document.createElement("span");
+    label.className = "portal-module-metric-label";
+    label.textContent = metricLabel;
+    const description = document.createElement("p");
+    description.textContent = note;
+    card.append(icon, title, number, label, description);
+    tiles.append(card);
+  }
+}
+
+function renderPortalAdminOverview() {
+  const summary = portalDashboardSummary;
+  elements.portalAdminOverview.hidden = summary?.isAdministrator !== true;
+  if (!summary?.isAdministrator) {
+    return;
+  }
+
+  const metrics = [
+    ["Project reviews", summary.projectReviewCount],
+    ["Governance runs", summary.governanceRunCount],
+    ["Open support requests", summary.openSupportRequestCount],
+    ["Active users", summary.activeUserCount]
+  ];
+  elements.portalAdminMetrics.replaceChildren();
+  for (const [labelText, value] of metrics) {
+    const metric = document.createElement("div");
+    metric.className = "portal-admin-metric";
+    const valueElement = document.createElement("strong");
+    valueElement.textContent = String(value);
+    const label = document.createElement("span");
+    label.textContent = labelText;
+    metric.append(valueElement, label);
+    elements.portalAdminMetrics.append(metric);
+  }
+}
+
+function renderProfileDetails() {
+  if (!applicationSession) {
+    return;
+  }
+
+  const name = applicationSession.displayName || applicationSession.emailAddress || "Signed-in user";
+  elements.profileName.textContent = name;
+  elements.profileEmail.textContent = applicationSession.emailAddress || "No email address was provided by your organization.";
+  const roles = [];
+  if (applicationSession.isAdmin) roles.push("Administrator");
+  if (applicationSession.isManager) roles.push("Review manager");
+  if (applicationSession.isLead) roles.push("Review lead");
+  if (roles.length === 0) roles.push("Standard user");
+  elements.profileRoles.textContent = roles.join(" · ");
+}
+
+async function submitSupportRequest(event) {
+  event.preventDefault();
+  elements.supportFormError.hidden = true;
+  elements.supportFormStatus.hidden = false;
+  elements.supportFormStatus.textContent = "Sending your request…";
+  elements.submitSupportRequest.disabled = true;
+  try {
+    const response = await fetch("/api/support/requests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({
+        category: elements.supportCategory.value,
+        subject: elements.supportSubject.value,
+        message: elements.supportMessage.value
+      })
+    });
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Support request could not be sent."));
+    }
+
+    elements.supportRequestForm.reset();
+    elements.supportFormStatus.textContent = "Request sent. Your administrator’s response will appear here.";
+    await loadSupportRequests();
+    await loadPortalDashboardSummary();
+  } catch (error) {
+    elements.supportFormStatus.textContent = "Your request was not sent.";
+    elements.supportFormError.textContent =
+      error instanceof Error ? error.message : "Support request could not be sent.";
+    elements.supportFormError.hidden = false;
+  } finally {
+    elements.submitSupportRequest.disabled = false;
+  }
+}
+
+async function loadSupportRequests() {
+  elements.supportRequestsStatus.textContent = "Loading support requests…";
+  elements.supportRequestsEmpty.hidden = true;
+  elements.supportRequestsList.replaceChildren();
+  try {
+    const response = await fetch("/api/support/requests", {
+      headers: { Accept: "application/json" }
+    });
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Support requests could not be loaded."));
+    }
+
+    const requests = await response.json();
+    elements.supportRequestsList.replaceChildren(
+      ...requests.map(request => createSupportRequestCard(request))
+    );
+    elements.supportQueueEyebrow.textContent =
+      applicationSession?.isAdmin ? "ADMIN SUPPORT QUEUE" : "YOUR REQUESTS";
+    elements.supportRequestsStatus.textContent =
+      `${requests.length} ${requests.length === 1 ? "request" : "requests"} shown.`;
+    elements.supportRequestsEmpty.hidden = requests.length !== 0;
+  } catch (error) {
+    elements.supportRequestsStatus.textContent =
+      error instanceof Error ? error.message : "Support requests could not be loaded.";
+    elements.supportRequestsStatus.classList.add("is-error");
+  }
+}
+
+let organizationHierarchy = null;
+
+async function loadOrganizationHierarchy() {
+  elements.hierarchyError.hidden = true;
+  elements.hierarchyStatus.textContent = "Loading your organizations and access assignments…";
+  try {
+    const response = await fetch("/api/admin/hierarchy", {
+      headers: { Accept: "application/json" }
+    });
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Organization settings could not be loaded."));
+    }
+
+    organizationHierarchy = await readJsonResponse(response, "Organization settings");
+    renderOrganizationHierarchy();
+    elements.hierarchyStatus.textContent =
+      `${organizationHierarchy.organizations.length} organizations, ` +
+      `${organizationHierarchy.projects.length} projects, ` +
+      `${organizationHierarchy.teams.length} teams visible to your account.`;
+  } catch (error) {
+    elements.hierarchyStatus.textContent = "Organization access could not be loaded.";
+    elements.hierarchyError.textContent =
+      error instanceof Error ? error.message : "Organization access could not be loaded.";
+    elements.hierarchyError.hidden = false;
+  }
+}
+
+function renderOrganizationHierarchy() {
+  if (!organizationHierarchy) return;
+
+  const { organizations, projects, teams, users, assignments } = organizationHierarchy;
+  const isRootAdmin = applicationSession?.isAdmin === true;
+  elements.hierarchyOrganizationForm.hidden = !isRootAdmin;
+  elements.hierarchyProjectForm.hidden = !isRootAdmin && applicationSession?.isOrgLead !== true;
+  elements.hierarchyTeamForm.hidden = !isRootAdmin &&
+    applicationSession?.isOrgLead !== true &&
+    applicationSession?.isProjectLead !== true;
+
+  const organizationSelect = elements.hierarchyProjectForm.elements.organizationId;
+  const projectSelect = elements.hierarchyTeamForm.elements.projectId;
+  replaceSelectOptions(organizationSelect, organizations, item => item.organizationId, item => item.name);
+  replaceSelectOptions(projectSelect, projects, item => item.projectId, item => {
+    const organization = organizations.find(parent => parent.organizationId === item.organizationId);
+    return `${organization?.name || "Organization"} / ${item.name}`;
+  });
+  replaceSelectOptions(
+    elements.hierarchyAssignmentForm.elements.userId,
+    users,
+    item => item.userId,
+    item => item.emailAddress ? `${item.displayName} · ${item.emailAddress}` : item.displayName
+  );
+  renderHierarchyAssignmentOptions();
+
+  const usersById = new Map(users.map(user => [user.userId, user]));
+  const namesByScopeId = new Map();
+  for (const organization of organizations) namesByScopeId.set(organization.organizationId, organization.name);
+  for (const project of projects) {
+    const parent = organizations.find(item => item.organizationId === project.organizationId);
+    namesByScopeId.set(project.projectId, `${parent?.name || "Organization"} / ${project.name}`);
+  }
+  for (const team of teams) {
+    const parent = projects.find(item => item.projectId === team.projectId);
+    const organization = organizations.find(item => item.organizationId === parent?.organizationId);
+    namesByScopeId.set(
+      team.teamId,
+      `${organization?.name || "Organization"} / ${parent?.name || "Project"} / ${team.name}`
+    );
+  }
+
+  elements.hierarchyAssignmentRows.replaceChildren();
+  for (const assignment of assignments) {
+    const user = usersById.get(assignment.userId);
+    const row = document.createElement("tr");
+    const userCell = document.createElement("td");
+    const scopeCell = document.createElement("td");
+    const roleCell = document.createElement("td");
+    const actionCell = document.createElement("td");
+    const userSummary = document.createElement("div");
+    const avatar = document.createElement("span");
+    const userDetails = document.createElement("span");
+    const userName = document.createElement("strong");
+    const userEmail = document.createElement("small");
+    const scopeBadge = document.createElement("span");
+    const scopeName = document.createElement("span");
+    const roleBadge = document.createElement("span");
+    const removeButton = document.createElement("button");
+    const displayName = user?.displayName || "User";
+    avatar.className = "hierarchy-user-avatar";
+    avatar.textContent = displayName.trim().charAt(0).toLocaleUpperCase() || "?";
+    avatar.setAttribute("aria-hidden", "true");
+    userSummary.className = "hierarchy-user-summary";
+    userDetails.className = "hierarchy-user-details";
+    userName.textContent = displayName;
+    userEmail.textContent = user?.emailAddress || "Email unavailable";
+    userDetails.append(userName, userEmail);
+    userSummary.append(avatar, userDetails);
+    userCell.append(userSummary);
+    scopeBadge.className = `hierarchy-scope-badge hierarchy-scope-${assignment.scopeType.toLowerCase()}`;
+    const scopeIcon = createGovernanceIcon({
+      Organization: "#icon-organization",
+      Project: "#icon-project",
+      Team: "#icon-team"
+    }[assignment.scopeType]?.replace("#icon-", "") || "hierarchy");
+    scopeIcon.classList.add("hierarchy-scope-icon");
+    const scopeLabel = document.createElement("span");
+    scopeLabel.textContent = assignment.scopeType;
+    scopeBadge.append(scopeIcon, scopeLabel);
+    scopeName.className = "hierarchy-scope-name";
+    scopeName.textContent = namesByScopeId.get(assignment.scopeId) || "Unavailable scope";
+    scopeCell.append(scopeBadge, scopeName);
+    roleBadge.className = `hierarchy-role-badge hierarchy-role-${assignment.roleName.toLowerCase()}`;
+    roleBadge.textContent = hierarchyRoleLabel(assignment.roleName);
+    roleCell.append(roleBadge);
+    removeButton.type = "button";
+    removeButton.className = "button button-secondary button-small hierarchy-remove-access";
+    removeButton.textContent = "Remove access";
+    removeButton.setAttribute("aria-label", `Remove ${hierarchyRoleLabel(assignment.roleName)} access for ${displayName}`);
+    removeButton.addEventListener("click", () => void removeHierarchyAssignment(assignment));
+    actionCell.append(removeButton);
+    row.append(userCell, scopeCell, roleCell, actionCell);
+    elements.hierarchyAssignmentRows.append(row);
+  }
+
+  elements.hierarchyInventory.replaceChildren();
+  const hierarchyTable = document.createElement("table");
+  hierarchyTable.className = "hierarchy-inventory-table";
+  hierarchyTable.setAttribute("aria-label", "Organizations, projects, and teams");
+  const tableHead = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  for (const label of ["Organization", "Project", "Team"]) {
+    const header = document.createElement("th");
+    header.scope = "col";
+    header.textContent = label;
+    headerRow.append(header);
+  }
+  tableHead.append(headerRow);
+  hierarchyTable.append(tableHead);
+
+  for (const organization of organizations) {
+    const organizationProjects = projects.filter(item => item.organizationId === organization.organizationId);
+    const body = document.createElement("tbody");
+    const rowCount = organizationProjects.reduce((count, project) => {
+      const teamCount = teams.filter(item => item.projectId === project.projectId).length;
+      return count + Math.max(teamCount, 1);
+    }, 0) || 1;
+    let firstOrganizationRow = true;
+
+    const appendOrganizationCell = row => {
+      if (!firstOrganizationRow) return;
+      const cell = document.createElement("th");
+      cell.scope = "rowgroup";
+      cell.rowSpan = rowCount;
+      cell.textContent = organization.name;
+      row.append(cell);
+      firstOrganizationRow = false;
+    };
+
+    if (!organizationProjects.length) {
+      const row = document.createElement("tr");
+      appendOrganizationCell(row);
+      for (const label of ["No projects", "—"]) {
+        const cell = document.createElement("td");
+        cell.className = "hierarchy-inventory-empty-cell";
+        cell.textContent = label;
+        row.append(cell);
+      }
+      body.append(row);
+    }
+
+    for (const project of organizationProjects) {
+      const projectTeams = teams.filter(item => item.projectId === project.projectId);
+      if (!projectTeams.length) {
+        const row = document.createElement("tr");
+        appendOrganizationCell(row);
+        const projectCell = document.createElement("th");
+        projectCell.scope = "row";
+        projectCell.textContent = project.name;
+        const teamCell = document.createElement("td");
+        teamCell.className = "hierarchy-inventory-empty-cell";
+        teamCell.textContent = "No teams";
+        row.append(projectCell, teamCell);
+        body.append(row);
+        continue;
+      }
+
+      for (const [index, team] of projectTeams.entries()) {
+        const row = document.createElement("tr");
+        appendOrganizationCell(row);
+        if (index === 0) {
+          const projectCell = document.createElement("th");
+          projectCell.scope = "rowgroup";
+          projectCell.rowSpan = projectTeams.length;
+          projectCell.textContent = project.name;
+          row.append(projectCell);
+        }
+        const teamCell = document.createElement("td");
+        teamCell.textContent = team.name;
+        row.append(teamCell);
+        body.append(row);
+      }
+    }
+    hierarchyTable.append(body);
+  }
+
+  if (!organizations.length) {
+    const empty = document.createElement("p");
+    empty.className = "dashboard-empty";
+    empty.textContent = "No organizations are assigned to your account yet.";
+    elements.hierarchyInventory.append(empty);
+    return;
+  }
+  elements.hierarchyInventory.append(hierarchyTable);
+}
+
+function replaceSelectOptions(select, items, value, label) {
+  const currentValue = select.value;
+  select.replaceChildren();
+  const placeholder = document.createElement("option");
+  placeholder.value = "";
+  placeholder.textContent = items.length ? "Select…" : "No available options";
+  select.append(placeholder);
+  for (const item of items) {
+    const option = document.createElement("option");
+    option.value = value(item);
+    option.textContent = label(item);
+    select.append(option);
+  }
+  if (items.some(item => value(item) === currentValue)) {
+    select.value = currentValue;
+  }
+}
+
+function renderHierarchyAssignmentOptions() {
+  const form = elements.hierarchyAssignmentForm;
+  const scopeType = form.elements.scopeType.value;
+  const hierarchyItems = scopeType === "Organization"
+    ? organizationHierarchy?.organizations || []
+    : scopeType === "Project"
+      ? organizationHierarchy?.projects || []
+      : organizationHierarchy?.teams || [];
+  replaceSelectOptions(
+    form.elements.scopeId,
+    hierarchyItems,
+    item => scopeType === "Organization"
+      ? item.organizationId
+      : scopeType === "Project"
+        ? item.projectId
+        : item.teamId,
+    item => {
+      if (scopeType === "Organization") return item.name;
+      if (scopeType === "Project") {
+        const parent = organizationHierarchy.organizations.find(
+          organization => organization.organizationId === item.organizationId
+        );
+        return `${parent?.name || "Organization"} / ${item.name}`;
+      }
+      const parent = organizationHierarchy.projects.find(project => project.projectId === item.projectId);
+      const organization = organizationHierarchy.organizations.find(
+        candidate => candidate.organizationId === parent?.organizationId
+      );
+      return `${organization?.name || "Organization"} / ${parent?.name || "Project"} / ${item.name}`;
+    }
+  );
+
+  const isRoot = applicationSession?.isAdmin === true;
+  const canLeadOrg = isRoot || applicationSession?.isOrgLead === true;
+  const canLeadProject = isRoot || applicationSession?.isOrgLead === true;
+  const canLeadTeam = canLeadProject || applicationSession?.isProjectLead === true;
+  const roles = scopeType === "Organization"
+    ? [...(isRoot ? [["OrgLead", "Org Lead"]] : []), ["ReadOnly", "Read-only"]]
+    : scopeType === "Project"
+      ? [...(canLeadProject ? [["ProjectLead", "Project Lead"]] : []), ["ReadOnly", "Read-only"]]
+      : [...(canLeadTeam ? [["TeamLead", "Team Lead"]] : []), ["ReadOnly", "Read-only"]];
+  const roleSelect = form.elements.roleName;
+  roleSelect.replaceChildren();
+  for (const [value, label] of roles) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    roleSelect.append(option);
+  }
+}
+
+function hierarchyRoleLabel(roleName) {
+  return ({
+    OrgLead: "Org Lead",
+    ProjectLead: "Project Lead",
+    TeamLead: "Team Lead",
+    ReadOnly: "Read-only"
+  })[roleName] || roleName;
+}
+
+async function createHierarchyItem(itemType, formData) {
+  const payload = Object.fromEntries(formData.entries());
+  if (itemType === "projects") payload.organizationId = payload.organizationId;
+  if (itemType === "teams") payload.projectId = payload.projectId;
+  try {
+    const response = await fetch(`/api/admin/hierarchy/${itemType}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Hierarchy item could not be created."));
+    }
+    const form = itemType === "organizations"
+      ? elements.hierarchyOrganizationForm
+      : itemType === "projects"
+        ? elements.hierarchyProjectForm
+        : elements.hierarchyTeamForm;
+    form.reset();
+    await loadOrganizationHierarchy();
+  } catch (error) {
+    elements.hierarchyError.textContent =
+      error instanceof Error ? error.message : "Hierarchy item could not be created.";
+    elements.hierarchyError.hidden = false;
+  }
+}
+
+async function saveHierarchyAssignment(formData) {
+  const payload = Object.fromEntries(formData.entries());
+  payload.isAssigned = true;
+  try {
+    const response = await fetch("/api/admin/hierarchy/assignments", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify(payload)
+    });
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "User access could not be saved."));
+    }
+    await loadOrganizationHierarchy();
+  } catch (error) {
+    elements.hierarchyError.textContent =
+      error instanceof Error ? error.message : "User access could not be saved.";
+    elements.hierarchyError.hidden = false;
+  }
+}
+
+async function removeHierarchyAssignment(assignment) {
+  try {
+    const response = await fetch("/api/admin/hierarchy/assignments", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ ...assignment, isAssigned: false })
+    });
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "User access could not be removed."));
+    }
+    await loadOrganizationHierarchy();
+  } catch (error) {
+    elements.hierarchyError.textContent =
+      error instanceof Error ? error.message : "User access could not be removed.";
+    elements.hierarchyError.hidden = false;
+  }
+}
+
+function createSupportRequestCard(request) {
+  const card = document.createElement("article");
+  card.className = "support-request-card";
+  const heading = document.createElement("div");
+  heading.className = "support-request-heading";
+  const title = document.createElement("h3");
+  title.textContent = request.subject;
+  const status = document.createElement("span");
+  status.className = `support-request-status status-${request.status.toLocaleLowerCase().replaceAll(" ", "-")}`;
+  status.textContent = request.status;
+  heading.append(title, status);
+  const meta = document.createElement("p");
+  meta.className = "support-request-meta";
+  const date = new Date(request.createdUtc);
+  meta.textContent = [
+    request.category,
+    date.toLocaleString(),
+    applicationSession?.isAdmin ? `${request.requesterName}${request.requesterEmail ? ` · ${request.requesterEmail}` : ""}` : ""
+  ].filter(Boolean).join(" · ");
+  const message = document.createElement("p");
+  message.className = "support-request-message";
+  message.textContent = request.message;
+  card.append(heading, meta, message);
+
+  if (request.adminResponse) {
+    const response = document.createElement("div");
+    response.className = "support-request-response";
+    const responseHeading = document.createElement("strong");
+    responseHeading.textContent = `Administrator response${request.responderName ? ` · ${request.responderName}` : ""}`;
+    const responseMessage = document.createElement("p");
+    responseMessage.textContent = request.adminResponse;
+    response.append(responseHeading, responseMessage);
+    card.append(response);
+  }
+
+  if (applicationSession?.isAdmin) {
+    const form = document.createElement("form");
+    form.className = "support-response-form";
+    const responseLabel = document.createElement("label");
+    responseLabel.textContent = "Reply";
+    const responseInput = document.createElement("textarea");
+    responseInput.maxLength = 4000;
+    responseInput.rows = 3;
+    responseInput.required = true;
+    responseInput.value = request.adminResponse || "";
+    responseLabel.append(responseInput);
+    const statusLabel = document.createElement("label");
+    statusLabel.textContent = "Status";
+    const statusSelect = document.createElement("select");
+    for (const statusValue of ["Open", "In progress", "Resolved"]) {
+      const option = document.createElement("option");
+      option.value = statusValue;
+      option.textContent = statusValue;
+      option.selected = request.status === statusValue;
+      statusSelect.append(option);
+    }
+    statusLabel.append(statusSelect);
+    const submit = document.createElement("button");
+    submit.className = "button button-secondary";
+    submit.type = "submit";
+    submit.textContent = "Save response";
+    form.append(responseLabel, statusLabel, submit);
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      void respondToSupportRequest(request.supportRequestId, responseInput.value, statusSelect.value, submit);
+    });
+    card.append(form);
+  }
+
+  return card;
+}
+
+async function respondToSupportRequest(supportRequestId, responseText, status, button) {
+  button.disabled = true;
+  try {
+    const response = await fetch(`/api/support/requests/${encodeURIComponent(supportRequestId)}/response`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      body: JSON.stringify({ response: responseText, status })
+    });
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Support response could not be saved."));
+    }
+    await loadSupportRequests();
+    await loadPortalDashboardSummary();
+  } catch (error) {
+    elements.supportRequestsStatus.textContent =
+      error instanceof Error ? error.message : "Support response could not be saved.";
+    elements.supportRequestsStatus.classList.add("is-error");
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function loadApplicationUsers() {
   elements.applicationUsersError.hidden = true;
   elements.applicationUsersStatus.textContent = "Loading users…";
@@ -1029,6 +1955,10 @@ async function initializeWorkspace() {
     return;
   }
 
+  if (applicationSession?.authenticationEnabled && !applicationSession.accessGranted) {
+    return;
+  }
+
   await loadModuleNavigation();
 }
 
@@ -1052,6 +1982,7 @@ async function loadAuthenticationSession() {
   if (!applicationSession.authenticationEnabled) {
     elements.accountControls.hidden = true;
     elements.administrationNavigation.hidden = false;
+    elements.accessRequestsNavigation.hidden = true;
     return;
   }
 
@@ -1061,12 +1992,426 @@ async function loadAuthenticationSession() {
   }
 
   elements.accountControls.hidden = false;
-  elements.accountName.textContent =
-    applicationSession.displayName || applicationSession.emailAddress || "Signed-in user";
+  elements.accessRequestsNavigation.hidden = false;
+  const displayName = applicationSession.displayName?.trim() ||
+    applicationSession.emailAddress?.trim() ||
+    "Signed-in user";
+  elements.accountName.textContent = displayName;
+  elements.accountInitial.textContent = Array.from(displayName)[0]?.toLocaleUpperCase() || "U";
+  elements.profileMenu.querySelector("summary").setAttribute(
+    "aria-label",
+    `Open account menu for ${displayName}`
+  );
+  elements.accountEmail.textContent = applicationSession.emailAddress || "";
+  renderProfileDetails();
   elements.administrationNavigation.hidden = !applicationSession.isAdmin;
+  elements.hierarchyNavigation.hidden = !canManageHierarchy();
   updateExportButton();
+  if (!applicationSession.accessGranted) {
+    elements.workspaceLoading.hidden = true;
+    elements.topbar.hidden = false;
+    elements.workspaceLayout.hidden = false;
+    for (const navigation of elements.moduleNavigations) {
+      navigation.hidden = true;
+    }
+    for (const navigation of elements.pageNavigations) {
+      if (navigation !== elements.accessRequestsNavigation) {
+        navigation.hidden = true;
+      }
+    }
+    elements.administrationNavigation.hidden = true;
+    elements.hierarchyNavigation.hidden = true;
+    if (window.location.pathname !== "/access-requests") {
+      window.history.replaceState(null, "", "/access-requests");
+    }
+    setWorkspaceView("accessRequests");
+    elements.accessRequestStatus.textContent =
+      "Workspace access is not enabled for this account yet. Submit a scoped request and wait for a lead’s decision.";
+    return;
+  }
+  await loadWorkspaceScopeContext();
   if (isReviewReviewer()) {
     void checkSharedFeedbackAvailability();
+  }
+}
+
+async function loadWorkspaceScopeContext() {
+  const scopesResponse = await fetch("/api/workspace/scopes", {
+    headers: { Accept: "application/json" }
+  });
+  if (!scopesResponse.ok) {
+    throw new Error(await readApiError(scopesResponse, "Your available workspace scopes could not be loaded."));
+  }
+
+  const available = await readJsonResponse(scopesResponse, "Workspace scopes");
+  const scopes = available.scopes || [];
+  const optionElements = [];
+  if (available.isRootAdmin) {
+    optionElements.push(new Option("All organizations", "all"));
+  } else if (scopes.length > 1) {
+    optionElements.push(new Option("Choose an organization, project, or team", ""));
+  }
+  for (const scope of scopes) {
+    optionElements.push(new Option(scope.label, `${scope.scopeType}:${scope.scopeId}`));
+  }
+  if (optionElements.length === 0) {
+    optionElements.push(new Option("No assigned scopes", ""));
+  }
+  elements.workspaceScopeSelect.replaceChildren(...optionElements);
+
+  const currentSelection = localStorage.getItem(workspaceScopeStorageKey);
+  const isSelectionAvailable = currentSelection === "all"
+    ? available.isRootAdmin
+    : scopes.some(scope => `${scope.scopeType}:${scope.scopeId}` === currentSelection);
+  const selection = isSelectionAvailable
+    ? currentSelection
+    : available.isRootAdmin
+      ? "all"
+      : scopes.length === 1
+        ? `${scopes[0].scopeType}:${scopes[0].scopeId}`
+        : "";
+  if (selection) {
+    localStorage.setItem(workspaceScopeStorageKey, selection);
+  } else {
+    localStorage.removeItem(workspaceScopeStorageKey);
+  }
+
+  elements.workspaceScopeSelect.value = selection || "";
+  elements.workspaceScopeSelect.disabled = optionElements.length === 1 && !optionElements[0].value;
+  elements.workspaceScopeControls.hidden = false;
+  const contextResponse = await fetch("/api/workspace/context", {
+    headers: { Accept: "application/json" }
+  });
+  if (!contextResponse.ok) {
+    throw new Error(await readApiError(contextResponse, "Users in the selected workspace scope could not be loaded."));
+  }
+
+  const context = await readJsonResponse(contextResponse, "Workspace context");
+  renderWorkspaceScopeMembers(context);
+}
+
+function renderWorkspaceScopeMembers(context) {
+  elements.profileScopeLabel.textContent = context.activeScopeLabel ||
+    (applicationSession?.isAdmin ? "All organizations" : "No organization, project, or team selected.");
+  elements.profileScopeUsers.replaceChildren();
+  elements.profileScopeUserCount.textContent =
+    `${context.members.length} ${context.members.length === 1 ? "person" : "people"}`;
+  elements.profileScopeUsersEmpty.hidden = context.members.length !== 0;
+  for (const member of context.members) {
+    const row = document.createElement("article");
+    const details = document.createElement("div");
+    const name = document.createElement("strong");
+    const email = document.createElement("span");
+    const roles = document.createElement("small");
+    row.className = "workspace-scope-user";
+    details.className = "workspace-scope-user-details";
+    name.textContent = member.displayName;
+    email.textContent = member.emailAddress || "Email unavailable";
+    roles.textContent = member.roles.length > 0 ? member.roles.join(" · ") : "No scoped role";
+    details.append(name, email);
+    row.append(details, roles);
+    elements.profileScopeUsers.append(row);
+  }
+}
+
+async function loadAccessRequestPage() {
+  elements.accessRequestError.hidden = true;
+  elements.accessRequestStatus.textContent = "Loading access scopes and request history…";
+  elements.accessRequestInboxSection.hidden = !canManageHierarchy();
+  elements.accessRequestSettingsSection.hidden = applicationSession?.isAdmin !== true;
+
+  try {
+    const scopesResponse = await fetch("/api/access-requests/scopes", {
+      headers: { Accept: "application/json" }
+    });
+    if (!scopesResponse.ok) {
+      throw new Error(await readApiError(scopesResponse, "Available access scopes could not be loaded."));
+    }
+
+    accessRequestScopes = await readJsonResponse(scopesResponse, "Access scopes");
+    renderAccessRequestRoleOptions();
+    const requestsResponse = await fetch("/api/access-requests/mine", {
+      headers: { Accept: "application/json" }
+    });
+    if (!requestsResponse.ok) {
+      throw new Error(await readApiError(requestsResponse, "Your access requests could not be loaded."));
+    }
+    renderMyAccessRequests(await readJsonResponse(requestsResponse, "Your access requests"));
+
+    if (canManageHierarchy()) {
+      const inboxResponse = await fetch("/api/access-requests/inbox", {
+        headers: { Accept: "application/json" }
+      });
+      if (!inboxResponse.ok) {
+        throw new Error(await readApiError(inboxResponse, "The access request inbox could not be loaded."));
+      }
+      renderAccessRequestInbox(await readJsonResponse(inboxResponse, "Access request inbox"));
+    }
+
+    if (applicationSession?.isAdmin === true) {
+      const settingsResponse = await fetch("/api/admin/access-requests/settings", {
+        headers: { Accept: "application/json" }
+      });
+      if (!settingsResponse.ok) {
+        throw new Error(await readApiError(settingsResponse, "Escalation settings could not be loaded."));
+      }
+      const settings = await readJsonResponse(settingsResponse, "Escalation settings");
+      elements.accessRequestEscalationDays.value = settings.escalationDays;
+    }
+
+    elements.accessRequestStatus.textContent = elements.accessRequestScopeId.options.length > 1
+      ? "Choose a scope and role. Your request will be sent to the appropriate lead."
+      : "There are no available scopes at this level. Contact a BI Sentinel administrator.";
+  } catch (error) {
+    elements.accessRequestStatus.textContent = "Access requests could not be loaded.";
+    elements.accessRequestError.textContent =
+      error instanceof Error ? error.message : "Access requests could not be loaded.";
+    elements.accessRequestError.hidden = false;
+  }
+}
+
+async function refreshAccessRequestPage() {
+  if (applicationSession?.authenticationEnabled && !applicationSession.accessGranted) {
+    try {
+      const response = await fetch("/api/auth/session", {
+        headers: { Accept: "application/json" }
+      });
+      if (!response.ok) {
+        throw new Error(await readApiError(response, "Sign-in status could not be refreshed."));
+      }
+
+      const session = await readJsonResponse(response, "Sign-in status");
+      if (session.accessGranted) {
+        window.location.reload();
+        return;
+      }
+    } catch (error) {
+      elements.accessRequestError.textContent =
+        error instanceof Error ? error.message : "Sign-in status could not be refreshed.";
+      elements.accessRequestError.hidden = false;
+      return;
+    }
+  }
+  await loadAccessRequestPage();
+}
+
+function renderAccessRequestRoleOptions() {
+  const scopeType = elements.accessRequestScopeType.value;
+  const scopedItems = accessRequestScopes.filter(item => item.scopeType === scopeType);
+  replaceSelectOptions(
+    elements.accessRequestScopeId,
+    scopedItems,
+    item => item.scopeId,
+    item => item.name
+  );
+  const leadRole = {
+    Organization: "OrgLead",
+    Project: "ProjectLead",
+    Team: "TeamLead"
+  }[scopeType];
+  const currentRole = elements.accessRequestRole.value;
+  elements.accessRequestRole.replaceChildren(
+    new Option("Read-only", "ReadOnly"),
+    new Option(scopeType === "Organization" ? "Organization lead" :
+      scopeType === "Project" ? "Project lead" : "Team lead", leadRole)
+  );
+  if ([...elements.accessRequestRole.options].some(option => option.value === currentRole)) {
+    elements.accessRequestRole.value = currentRole;
+  }
+  elements.accessRequestApprovalFlow.textContent = {
+    Organization: "Approval sequence: Organization Lead → Root Admin",
+    Project: "Approval sequence: Project Lead → Organization Lead → Root Admin",
+    Team: "Approval sequence: Team Lead → Project Lead → Organization Lead → Root Admin"
+  }[scopeType];
+}
+
+async function submitAccessRequest(event) {
+  event.preventDefault();
+  elements.accessRequestError.hidden = true;
+  const submitButton = elements.accessRequestForm.querySelector("button[type='submit']");
+  submitButton.disabled = true;
+  elements.accessRequestStatus.textContent = "Submitting your access request…";
+  try {
+    const response = await fetch("/api/access-requests", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        scopeType: elements.accessRequestScopeType.value,
+        scopeId: elements.accessRequestScopeId.value,
+        roleName: elements.accessRequestRole.value,
+        message: elements.accessRequestMessage.value.trim() || null
+      })
+    });
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Your access request could not be submitted."));
+    }
+
+    elements.accessRequestMessage.value = "";
+    await loadAccessRequestPage();
+    elements.accessRequestStatus.textContent =
+      "Request submitted. The relevant lead will be notified and can approve or decline with an optional message.";
+  } catch (error) {
+    elements.accessRequestStatus.textContent = "Your request was not submitted.";
+    elements.accessRequestError.textContent =
+      error instanceof Error ? error.message : "Your access request could not be submitted.";
+    elements.accessRequestError.hidden = false;
+  } finally {
+    submitButton.disabled = false;
+  }
+}
+
+function renderMyAccessRequests(requests) {
+  elements.myAccessRequests.replaceChildren();
+  for (const request of requests) {
+    elements.myAccessRequests.append(createAccessRequestCard(request, false));
+  }
+  elements.myAccessRequestsEmpty.hidden = requests.length !== 0;
+}
+
+function renderAccessRequestInbox(requests) {
+  elements.accessRequestInbox.replaceChildren();
+  for (const request of requests) {
+    elements.accessRequestInbox.append(createAccessRequestCard(request, true));
+  }
+  elements.accessRequestInboxEmpty.hidden = requests.length !== 0;
+  elements.accessRequestInboxStatus.textContent =
+    `${requests.length} request${requests.length === 1 ? "" : "s"} available for your assigned scope.`;
+}
+
+function createAccessRequestCard(request, canRespond) {
+  const card = document.createElement("article");
+  const heading = document.createElement("div");
+  const title = document.createElement("h3");
+  const status = document.createElement("span");
+  const details = document.createElement("p");
+  const submitted = document.createElement("p");
+  card.className = "access-request-card";
+  heading.className = "access-request-card-heading";
+  title.textContent = canRespond
+    ? `${request.requesterName} · ${accessRoleLabel(request.requestedRole)}`
+    : `${request.scopeType} · ${accessRoleLabel(request.requestedRole)}`;
+  status.className = `access-request-state access-request-state-${request.status.toLowerCase()}`;
+  status.textContent = request.status;
+  heading.append(title, status);
+  details.className = "access-request-card-details";
+  details.textContent = canRespond
+    ? `${request.scopeName}${request.requesterEmail ? ` · ${request.requesterEmail}` : ""}`
+    : request.scopeName;
+  submitted.className = "access-request-card-submitted";
+  submitted.textContent = `Submitted ${new Date(request.submittedUtc).toLocaleString()}`;
+  card.append(heading, details, submitted);
+
+  if (request.message) {
+    const note = document.createElement("p");
+    note.className = "access-request-card-note";
+    note.textContent = `Request note: ${request.message}`;
+    card.append(note);
+  }
+  if (request.resolutionMessage) {
+    const resolution = document.createElement("p");
+    resolution.className = "access-request-card-resolution";
+    resolution.textContent = `Response from ${request.respondedByName || "your lead"}: ${request.resolutionMessage}`;
+    card.append(resolution);
+  }
+  if (canRespond) {
+    const responseMessage = document.createElement("textarea");
+    const actions = document.createElement("div");
+    const approveButton = document.createElement("button");
+    const declineButton = document.createElement("button");
+    responseMessage.className = "access-request-response-message";
+    responseMessage.rows = 2;
+    responseMessage.maxLength = 2000;
+    responseMessage.placeholder = "Optional message for the requester";
+    responseMessage.setAttribute("aria-label", `Optional response for ${request.requesterName}`);
+    actions.className = "access-request-card-actions";
+    approveButton.type = "button";
+    approveButton.className = "button button-primary button-small";
+    approveButton.textContent = "Approve";
+    declineButton.type = "button";
+    declineButton.className = "button button-secondary button-small";
+    declineButton.textContent = "Decline";
+    approveButton.addEventListener("click", () => void decideAccessRequest(
+      request.accessRequestId,
+      "Approved",
+      responseMessage.value
+    ));
+    declineButton.addEventListener("click", () => void decideAccessRequest(
+      request.accessRequestId,
+      "Declined",
+      responseMessage.value
+    ));
+    actions.append(approveButton, declineButton);
+    card.append(responseMessage, actions);
+  }
+  return card;
+}
+
+function accessRoleLabel(roleName) {
+  return {
+    OrgLead: "Organization Lead",
+    ProjectLead: "Project Lead",
+    TeamLead: "Team Lead",
+    ReadOnly: "Read-only"
+  }[roleName] || roleName;
+}
+
+async function decideAccessRequest(accessRequestId, decision, message) {
+  elements.accessRequestError.hidden = true;
+  try {
+    const response = await fetch(
+      `/api/access-requests/${encodeURIComponent(accessRequestId)}/decision`,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ decision, message: message.trim() || null })
+      }
+    );
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "The access request could not be resolved."));
+    }
+
+    elements.accessRequestInboxStatus.textContent =
+      `Request ${decision.toLowerCase()}; the requester will be notified.`;
+    await loadAccessRequestPage();
+  } catch (error) {
+    elements.accessRequestError.textContent =
+      error instanceof Error ? error.message : "The access request could not be resolved.";
+    elements.accessRequestError.hidden = false;
+  }
+}
+
+async function saveAccessRequestSettings(event) {
+  event.preventDefault();
+  elements.accessRequestSettingsStatus.textContent = "Saving escalation settings…";
+  const saveButton = elements.accessRequestSettingsForm.querySelector("button[type='submit']");
+  saveButton.disabled = true;
+  try {
+    const response = await fetch("/api/admin/access-requests/settings", {
+      method: "PUT",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        escalationDays: Number(elements.accessRequestEscalationDays.value)
+      })
+    });
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Escalation settings could not be saved."));
+    }
+
+    elements.accessRequestSettingsStatus.textContent = "Escalation interval saved.";
+  } catch (error) {
+    elements.accessRequestSettingsStatus.textContent =
+      error instanceof Error ? error.message : "Escalation settings could not be saved.";
+  } finally {
+    saveButton.disabled = false;
   }
 }
 
@@ -1098,7 +2443,8 @@ function renderModuleAvailability(availability) {
     elements.moduleAvailabilityList.append(label);
   }
 
-  if (activeWorkspaceView !== "administration" && moduleAvailability[activeWorkspaceView] !== true) {
+  if (modules.some(module => module.key === activeWorkspaceView) &&
+      moduleAvailability[activeWorkspaceView] !== true) {
     const firstEnabledModule = modules.find(isModuleAvailableToCurrentUser);
     if (firstEnabledModule) {
       navigateWorkspace(firstEnabledModule.key, true);
@@ -1145,7 +2491,7 @@ async function loadGovernanceConfiguration() {
       headers: { Accept: "application/json" }
     });
     if (!response.ok) {
-      throw new Error(await readApiError(response, "Governance Audit configuration could not be loaded."));
+      throw new Error(await readApiError(response, "Governance configuration could not be loaded."));
     }
 
     const result = await response.json();
@@ -1156,9 +2502,9 @@ async function loadGovernanceConfiguration() {
       `Configuration version ${result.version} · Updated ${new Date(result.updatedUtc).toLocaleString()} · ${result.updatedBy}`;
     elements.governanceConfigStatus.textContent = "Approved workspace scope loaded.";
   } catch (error) {
-    elements.governanceConfigStatus.textContent = "Governance Audit configuration is unavailable.";
+    elements.governanceConfigStatus.textContent = "Governance configuration is unavailable.";
     elements.governanceConfigError.textContent =
-      error instanceof Error ? error.message : "Governance Audit configuration could not be loaded.";
+      error instanceof Error ? error.message : "Governance configuration could not be loaded.";
     elements.governanceConfigError.hidden = false;
   } finally {
     elements.saveGovernanceConfiguration.disabled = false;
@@ -1258,14 +2604,14 @@ async function fetchGovernanceScanScope() {
       const emptyState = document.createElement("p");
       emptyState.className = "dashboard-empty";
       emptyState.textContent =
-        "No workspaces are approved yet. Add the approved workspace IDs under Administration → Governance Audit.";
+        "No workspaces are approved yet. Add the approved workspace IDs under Administration → Governance.";
       elements.governanceScanWorkspaces.append(emptyState);
       governanceScanScopeLoaded = true;
       return true;
     }
     if (workspaceIds.length > scope.maximumWorkspaces) {
       throw new Error(
-        "The approved scope exceeds the server's maximum scan size. Reduce it under Administration → Governance Audit."
+        "The approved scope exceeds the server's maximum scan size. Reduce it under Administration → Governance."
       );
     }
 
@@ -1345,7 +2691,7 @@ async function prepareGovernanceWorkspaceStep() {
   elements.governanceWorkspaceLoadStatus.classList.add("is-loaded");
   elements.governanceWorkspaceLoadMessage.textContent = workspaceCount > 0
     ? `${workspaceCount} approved workspace${workspaceCount === 1 ? "" : "s"} ready.`
-    : "No workspaces approved yet. Add one in Governance Audit Administration.";
+    : "No workspaces approved yet. Add one in Governance Administration.";
   workspaceTab.disabled = false;
   elements.governanceAccessNext.disabled = workspaceCount === 0;
   return true;
@@ -1771,7 +3117,7 @@ async function saveGovernanceConfiguration() {
       body: JSON.stringify({ expectedVersion: governanceConfigurationVersion, workspaceIds })
     });
     if (!response.ok) {
-      throw new Error(await readApiError(response, "Governance Audit scope could not be saved."));
+      throw new Error(await readApiError(response, "Governance scope could not be saved."));
     }
 
     const result = await response.json();
@@ -1786,7 +3132,7 @@ async function saveGovernanceConfiguration() {
     governanceArtifactCatalogWorkspaceKey = "";
   } catch (error) {
     elements.governanceConfigError.textContent =
-      error instanceof Error ? error.message : "Governance Audit scope could not be saved.";
+      error instanceof Error ? error.message : "Governance scope could not be saved.";
     elements.governanceConfigError.hidden = false;
     elements.governanceConfigStatus.textContent = "Workspace scope was not saved.";
   } finally {
@@ -2095,7 +3441,7 @@ async function executeGovernanceScan({
       headers: { Accept: "application/json" }
     });
     if (!response.ok) {
-      throw new Error(await readApiError(response, "Governance Audit scan failed."));
+      throw new Error(await readApiError(response, "Governance scan failed."));
     }
 
     const result = await response.json();
@@ -2111,9 +3457,9 @@ async function executeGovernanceScan({
     elements.governanceResultsDialog.showModal();
   } catch (error) {
     elements.governanceError.textContent =
-      error instanceof Error ? error.message : "Governance Audit scan failed.";
+      error instanceof Error ? error.message : "Governance scan failed.";
     elements.governanceError.hidden = false;
-    elements.governanceStatus.textContent = "Governance Audit did not complete.";
+    elements.governanceStatus.textContent = "Governance scan did not complete.";
   } finally {
     elements.runGovernanceScan.disabled = false;
     finishLoading();
@@ -2495,7 +3841,7 @@ async function exportGovernanceAudit() {
       { headers: { Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" } }
     );
     if (!response.ok) {
-      throw new Error(await readApiError(response, "Governance Audit workbook could not be exported."));
+      throw new Error(await readApiError(response, "Governance workbook could not be exported."));
     }
 
     const workbook = await response.blob();
@@ -2512,7 +3858,7 @@ async function exportGovernanceAudit() {
   } catch (error) {
     elements.governanceError.textContent = error instanceof Error
       ? error.message
-      : "Governance Audit workbook could not be exported.";
+      : "Governance workbook could not be exported.";
     elements.governanceError.hidden = false;
   } finally {
     elements.exportGovernanceAudit.disabled = !currentGovernanceRunId;
@@ -3230,7 +4576,7 @@ async function loadGovernanceAuditHistory() {
       headers: { Accept: "application/json" }
     });
     if (!response.ok) {
-      throw new Error(await readApiError(response, "Saved Governance Audit history could not be loaded."));
+      throw new Error(await readApiError(response, "Saved Governance history could not be loaded."));
     }
 
     const runs = await response.json();
@@ -3272,7 +4618,7 @@ async function loadGovernanceAuditHistory() {
     filterGovernanceAuditHistory();
   } catch (error) {
     elements.governanceHistoryError.textContent =
-      error instanceof Error ? error.message : "Saved Governance Audit history could not be loaded.";
+      error instanceof Error ? error.message : "Saved Governance history could not be loaded.";
     elements.governanceHistoryError.hidden = false;
   }
 }
@@ -3290,21 +4636,21 @@ function filterGovernanceAuditHistory() {
     `Showing ${visibleCount} of ${rows.length} saved audit run${rows.length === 1 ? "" : "s"}.`;
   elements.governanceHistoryEmpty.hidden = visibleCount > 0;
   if (rows.length === 0) {
-    elements.governanceHistoryEmpty.textContent = "No saved Governance Audit runs yet.";
+    elements.governanceHistoryEmpty.textContent = "No saved Governance runs yet.";
   } else if (visibleCount === 0) {
     elements.governanceHistoryEmpty.textContent = "No audit runs match your search.";
   }
 }
 
 async function loadGovernanceAuditRun(runId) {
-  elements.governanceStatus.textContent = "Loading saved Governance Audit run…";
+  elements.governanceStatus.textContent = "Loading saved Governance run…";
   elements.governanceHistoryError.hidden = true;
   try {
     const response = await fetch(`/api/governance-audit/runs/${encodeURIComponent(runId)}`, {
       headers: { Accept: "application/json" }
     });
     if (!response.ok) {
-      throw new Error(await readApiError(response, "Saved Governance Audit run could not be loaded."));
+      throw new Error(await readApiError(response, "Saved Governance run could not be loaded."));
     }
 
     const result = await response.json();
@@ -3315,7 +4661,7 @@ async function loadGovernanceAuditRun(runId) {
     navigateGovernancePage("results");
   } catch (error) {
     elements.governanceHistoryError.textContent =
-      error instanceof Error ? error.message : "Saved Governance Audit run could not be loaded.";
+      error instanceof Error ? error.message : "Saved Governance run could not be loaded.";
     elements.governanceHistoryError.hidden = false;
     elements.governanceStatus.textContent = "Saved audit run could not be loaded.";
   }
@@ -3564,8 +4910,12 @@ async function readJsonResponse(response, operation) {
     return JSON.parse(body);
   } catch {
     const contentType = response.headers.get("content-type") || "unknown content type";
+    const isHtml = contentType.includes("text/html") ||
+      /^\s*<!doctype html|^\s*<html/i.test(body);
     throw new Error(
-      `${operation} returned an invalid JSON response (HTTP ${response.status}, ${contentType}).`
+      isHtml
+        ? `${operation} received an HTML page instead of API data (HTTP ${response.status}). Publish and restart the latest BI Sentinel API.`
+        : `${operation} returned an invalid JSON response (HTTP ${response.status}, ${contentType}).`
     );
   }
 }
@@ -3652,6 +5002,7 @@ async function runReview(url, requestOptions, triggerButton, sourceName) {
       );
     }
     await displaySavedRuns([savedRun], sourceName);
+    return true;
   } catch (error) {
     showReviewError(
       error instanceof Error ? error.message : "The review could not be completed.",
@@ -3660,6 +5011,7 @@ async function runReview(url, requestOptions, triggerButton, sourceName) {
     elements.status.textContent = error instanceof Error && error.message.startsWith("Review completed but could not be saved:")
       ? "Review completed but was not saved."
       : "Review did not complete.";
+    return false;
   } finally {
     triggerButton.disabled = false;
     finishLoading();
@@ -3700,6 +5052,18 @@ async function displaySavedRuns(savedRuns, sourceName) {
   renderSummary(summary);
   renderFindings();
   elements.overview.hidden = false;
+  const onlineEvidence = savedRuns.find(run => run.onlineEvidence)?.onlineEvidence;
+  if (onlineEvidence) {
+    elements.onlineReviewEvidence.textContent =
+      `Online scan of ${onlineEvidence.workspaceName}: ${onlineEvidence.reportCount} reports, ` +
+      `${onlineEvidence.semanticModelCount} semantic models, and schema metadata for ` +
+      `${onlineEvidence.schemaAvailableModelCount}. ` +
+      onlineEvidence.evidenceLimitations.join(" ");
+    elements.onlineReviewEvidence.hidden = false;
+  } else {
+    elements.onlineReviewEvidence.hidden = true;
+    elements.onlineReviewEvidence.textContent = "";
+  }
   const resultsTab = elements.reviewPageTabs.find(tab => tab.dataset.reviewPageTab === "results");
   resultsTab.disabled = false;
   navigateReviewPage("results");
@@ -3762,6 +5126,231 @@ async function uploadProject() {
   );
 }
 
+async function loadOnlineReviewWorkspaces() {
+  elements.loadOnlineWorkspaces.disabled = true;
+  elements.onlineReviewError.hidden = true;
+  elements.authorizeOnlinePowerBi.hidden = true;
+  elements.onlineReviewStatus.textContent = "Loading workspaces visible to your Power BI account…";
+  elements.onlineWorkspaceSelect.disabled = true;
+  elements.scanOnlineWorkspace.disabled = true;
+  try {
+    const response = await fetch("/api/reviews/online/workspaces", {
+      headers: { Accept: "application/json" }
+    });
+    if (!response.ok) {
+      const message = await readApiError(response, "Power BI workspaces could not be loaded.");
+      if (response.status === 409) {
+        elements.authorizeOnlinePowerBi.hidden = false;
+      }
+      throw new Error(message);
+    }
+
+    onlineReviewWorkspaces = await response.json();
+    elements.onlineWorkspaceSelect.replaceChildren();
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = onlineReviewWorkspaces.length
+      ? "Select a workspace"
+      : "No accessible workspaces found";
+    elements.onlineWorkspaceSelect.append(placeholder);
+    for (const workspace of onlineReviewWorkspaces) {
+      const option = document.createElement("option");
+      option.value = workspace.id;
+      option.textContent = workspace.name;
+      elements.onlineWorkspaceSelect.append(option);
+    }
+    elements.onlineWorkspaceSelect.disabled = onlineReviewWorkspaces.length === 0;
+    elements.onlineReviewStatus.textContent = onlineReviewWorkspaces.length
+      ? `${onlineReviewWorkspaces.length} accessible ${onlineReviewWorkspaces.length === 1 ? "workspace" : "workspaces"} loaded.`
+      : "No workspaces are visible to your signed-in Power BI account.";
+  } catch (error) {
+    elements.onlineReviewError.textContent =
+      error instanceof Error ? error.message : "Power BI workspaces could not be loaded.";
+    elements.onlineReviewError.hidden = false;
+    elements.onlineReviewStatus.textContent = "Workspaces were not loaded.";
+  } finally {
+    elements.loadOnlineWorkspaces.disabled = false;
+  }
+}
+
+async function runOnlineWorkspaceReview() {
+  const workspaceId = elements.onlineWorkspaceSelect.value;
+  const workspace = onlineReviewWorkspaces.find(item => item.id === workspaceId);
+  if (!workspace) {
+    elements.onlineReviewError.textContent = "Choose a workspace before starting the review.";
+    elements.onlineReviewError.hidden = false;
+    return;
+  }
+
+  elements.onlineReviewError.hidden = true;
+  elements.onlineReviewStatus.textContent = `Reviewing ${workspace.name} using your Power BI access…`;
+  const completed = await runReview(
+    "/api/reviews/online/scan",
+    {
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ workspaceId })
+    },
+    elements.scanOnlineWorkspace,
+    `Power BI workspace: ${workspace.name}`
+  );
+  elements.onlineReviewStatus.textContent = completed
+    ? "Online workspace review finished. See the saved findings and evidence notes."
+    : "Online workspace review did not complete.";
+}
+
+async function runPerformanceAssessment(event) {
+  event.preventDefault();
+  const file = elements.performanceArtifact.files[0];
+  if (!file) {
+    elements.performanceAssessmentError.textContent = "Choose a supported Power BI artifact to assess.";
+    elements.performanceAssessmentError.hidden = false;
+    return;
+  }
+
+  elements.performanceAssessmentError.hidden = true;
+  elements.performanceAssessmentResults.hidden = true;
+  elements.runPerformanceAssessment.disabled = true;
+  elements.performanceAssessmentStatus.textContent = `Analyzing ${file.name}…`;
+  const form = new FormData();
+  form.append("file", file);
+  try {
+    const response = await fetch("/api/performance-optimization/assess", {
+      method: "POST",
+      body: form,
+      headers: { Accept: "application/json" }
+    });
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Performance assessment could not be completed."));
+    }
+
+    const assessment = await readJsonResponse(response, "Performance assessment");
+    renderPerformanceAssessment(assessment);
+    elements.performanceAssessmentResults.hidden = false;
+    elements.performanceAssessmentStatus.textContent =
+      `Assessment completed for ${assessment.projectName || file.name}. Static analysis only; runtime performance was not measured.`;
+  } catch (error) {
+    elements.performanceAssessmentError.textContent = error instanceof Error
+      ? error.message
+      : "Performance assessment could not be completed.";
+    elements.performanceAssessmentError.hidden = false;
+    elements.performanceAssessmentStatus.textContent = "Assessment did not complete.";
+  } finally {
+    elements.runPerformanceAssessment.disabled = false;
+  }
+}
+
+function renderPerformanceAssessment(assessment) {
+  const output = elements.performanceAssessmentOutput;
+  output.replaceChildren();
+  const sections = [
+    ["Executive Summary", {
+      summary: assessment.executiveSummary,
+      scopeAnalyzed: assessment.scopeAnalyzed
+    }],
+    ["Model Inventory", assessment.modelInventory],
+    ["Report Inventory", assessment.reportInventory],
+    ["DAX Inventory", assessment.daxInventory],
+    ["Reusable Artifacts", assessment.reusableArtifacts],
+    ["Findings", assessment.findings],
+    ["Measured Issues / Potential Issues / Telemetry Unknowns", assessment.evidenceSeparation],
+    ["Potential Optimization Candidates", assessment.potentialOptimizationCandidates],
+    ["Evidence Gaps", assessment.evidenceGaps],
+    ["Risks", assessment.risks],
+    ["Recommended Next Steps", assessment.recommendedNextSteps],
+    ["Fabric / Premium Readiness", assessment.fabricReadiness],
+    ["Acceptance Gate Status", assessment.acceptanceGates]
+  ];
+
+  for (const [title, content] of sections) {
+    const section = document.createElement("section");
+    section.className = "performance-assessment-section";
+    const details = document.createElement("details");
+    details.open = [
+      "Executive Summary",
+      "Findings",
+      "Potential Optimization Candidates",
+      "Evidence Gaps",
+      "Acceptance Gate Status"
+    ].includes(title);
+    const heading = document.createElement("summary");
+    heading.textContent = title;
+    const contentElement = renderAssessmentValue(content);
+    contentElement.classList.add("performance-assessment-content");
+    details.append(heading, contentElement);
+    section.append(details);
+    output.append(section);
+  }
+}
+
+function renderAssessmentValue(value) {
+  if (value === null || value === undefined) {
+    const unavailable = document.createElement("span");
+    unavailable.className = "performance-value-unavailable";
+    unavailable.textContent = "Not available";
+    return unavailable;
+  }
+
+  if (Array.isArray(value)) {
+    const list = document.createElement("div");
+    list.className = "performance-value-list";
+    const items = document.createElement("div");
+    items.className = "performance-value-items";
+    if (value.length > 8) {
+      const expandable = document.createElement("details");
+      expandable.className = "performance-value-expandable";
+      const summary = document.createElement("summary");
+      summary.textContent = `Show ${value.length} items`;
+      expandable.append(summary, items);
+      list.append(expandable);
+    } else {
+      list.append(items);
+    }
+
+    for (const item of value) {
+      const itemElement = renderAssessmentValue(item);
+      if (item && typeof item === "object") {
+        itemElement.classList.add("performance-value-card");
+      } else {
+        itemElement.classList.add("performance-value-item");
+      }
+      items.append(itemElement);
+    }
+    if (!value.length) {
+      const empty = document.createElement("span");
+      empty.className = "performance-value-unavailable";
+      empty.textContent = "None identified";
+      items.append(empty);
+    }
+    return list;
+  }
+
+  if (typeof value === "object") {
+    const definitionList = document.createElement("dl");
+    definitionList.className = "performance-value-properties";
+    for (const [key, propertyValue] of Object.entries(value)) {
+      const term = document.createElement("dt");
+      const description = document.createElement("dd");
+      term.textContent = formatAssessmentLabel(key);
+      description.append(renderAssessmentValue(propertyValue));
+      definitionList.append(term, description);
+    }
+    return definitionList;
+  }
+
+  const text = document.createElement("span");
+  text.className = `performance-value-${typeof value}`;
+  text.textContent = typeof value === "boolean"
+    ? value ? "Yes" : "No"
+    : String(value);
+  return text;
+}
+
+function formatAssessmentLabel(value) {
+  return value
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/^./, character => character.toLocaleUpperCase());
+}
+
 async function searchReviewHistory(event) {
   event.preventDefault();
   const projectName = elements.reviewSearch.value.trim();
@@ -3800,8 +5389,8 @@ async function searchReviewHistory(event) {
     elements.status.textContent = `Found ${runs.length} saved ${runs.length === 1 ? "review" : "reviews"} for "${projectName}".`;
   } catch (error) {
     showError(error instanceof Error
-      ? `${error.message} Verify migration 002 and the app's SQL permissions.`
-      : "Review history could not be loaded. Verify migration 002 and the app's SQL permissions.");
+      ? error.message
+      : "Review history could not be loaded.");
   } finally {
     searchButton.disabled = false;
   }
@@ -3818,6 +5407,8 @@ async function loadSelectedReview() {
 async function loadReviewById(reviewRunId, submission = null) {
   elements.status.textContent = "Loading saved review…";
   elements.error.hidden = true;
+  elements.onlineReviewEvidence.hidden = true;
+  elements.onlineReviewEvidence.textContent = "";
   try {
     const response = await fetch(`/api/reviews/history/${encodeURIComponent(reviewRunId)}`, {
       headers: { Accept: "application/json" }
@@ -3949,6 +5540,7 @@ function updateSubmissionControls() {
   const showSubmitterControls = !isReviewReviewer() && currentFindings.length > 0;
   const showReviewerControls = reviewerSubmissionMode && currentSubmission?.status === "Submitted";
   elements.submissionControls.hidden = !showSubmitterControls && !showReviewerControls;
+  elements.reviewerBulkActions.hidden = !showReviewerControls;
   if (showReviewerControls) {
     elements.submitReviewWorkflow.hidden = false;
     elements.submissionStatus.textContent =
@@ -3979,9 +5571,46 @@ function updateSubmissionControls() {
   );
 }
 
+function applyReviewerBulkDisposition() {
+  const disposition = elements.reviewerBulkDisposition.value;
+  if (!disposition || !currentSubmission || currentSubmission.status !== "Submitted") {
+    return;
+  }
+
+  for (const finding of currentSubmission.findings) {
+    reviewerResponseDrafts[finding.reviewFindingId] = {
+      ...reviewerResponseDrafts[finding.reviewFindingId],
+      disposition
+    };
+  }
+
+  renderFindings();
+  updateSubmissionControls();
+  elements.status.textContent =
+    `${currentSubmission.findings.length} findings set to ${dispositionLabel(disposition)}. You can change individual decisions before submitting.`;
+}
+
+function dispositionLabel(disposition) {
+  return {
+    Accepted: "Accepted",
+    NeedsChanges: "Needs changes",
+    Noted: "Noted",
+    IncorrectFinding: "Incorrect finding"
+  }[disposition] || disposition;
+}
+
 async function loadDashboard() {
   elements.refreshDashboard.disabled = true;
   try {
+    if (applicationSession?.isAdmin !== true &&
+        !localStorage.getItem(workspaceScopeStorageKey)) {
+      dashboardItems = [];
+      elements.status.textContent =
+        "Choose one of your assigned organizations, projects, or teams to load scoped review data.";
+      renderDashboard();
+      return;
+    }
+
     const reviewer = isReviewReviewer();
     const response = await fetch(
       reviewer
@@ -4012,9 +5641,7 @@ async function loadDashboard() {
       : "Track your submitted reviews and read manager, lead, or administrator responses. Submitted justifications cannot be edited.";
     renderDashboard();
   } catch (error) {
-    showError(error instanceof Error
-      ? `${error.message} Verify review-history migration 002, application-access migration 008, and review-submission migration 012.`
-      : "Review dashboard could not be loaded.");
+    showError(error instanceof Error ? error.message : "Review dashboard could not be loaded.");
   } finally {
     elements.refreshDashboard.disabled = false;
   }

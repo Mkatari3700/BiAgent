@@ -1,5 +1,6 @@
 using System.Data;
 using Microsoft.Data.SqlClient;
+using BISentinel.Api.Security;
 
 namespace BISentinel.Api.Feedback;
 
@@ -7,7 +8,8 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
 {
     public async Task<DateTime?> SaveAsync(
         SaveReviewFeedbackRequest request,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -16,7 +18,7 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
             cancellationToken);
         await using var command = connection.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = """
+        command.CommandText = $"""
             DECLARE @FindingProjectName nvarchar(400);
             DECLARE @FindingKey binary(32);
             DECLARE @FindingRuleId nvarchar(100);
@@ -35,7 +37,8 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
             INNER JOIN dbo.BiAgentReviewRuns AS run
                 ON run.ReviewRunId = finding.ReviewRunId
             WHERE finding.ReviewFindingId = @ReviewFindingId
-              AND run.ExpiresUtc > SYSUTCDATETIME();
+              AND run.ExpiresUtc > SYSUTCDATETIME()
+              AND {ScopeCondition};
 
             IF @FindingKey IS NULL
             BEGIN
@@ -74,6 +77,7 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
             string.IsNullOrWhiteSpace(request.Rating) ? DBNull.Value : request.Rating;
         command.Parameters.Add("@Comment", SqlDbType.NVarChar, 500).Value =
             string.IsNullOrWhiteSpace(request.Comment) ? DBNull.Value : request.Comment.Trim();
+        AddScopeParameters(command, scope);
         var updatedUtc = (DateTime?)await command.ExecuteScalarAsync(cancellationToken);
         if (updatedUtc is null)
         {
@@ -87,12 +91,13 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
     public async Task<DateTime?> ReopenAsync(
         Guid reviewerId,
         Guid reviewFindingId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             UPDATE feedback
             SET FeedbackStatus = N'Open',
                 UpdatedUtc = SYSUTCDATETIME()
@@ -104,10 +109,12 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
                 ON run.ReviewRunId = finding.ReviewRunId
             WHERE feedback.ReviewerId = @ReviewerId
               AND feedback.ReviewFindingId = @ReviewFindingId
-              AND run.ExpiresUtc > SYSUTCDATETIME();
+              AND run.ExpiresUtc > SYSUTCDATETIME()
+              AND {ScopeCondition};
             """;
         command.Parameters.Add("@ReviewerId", SqlDbType.UniqueIdentifier).Value = reviewerId;
         command.Parameters.Add("@ReviewFindingId", SqlDbType.UniqueIdentifier).Value = reviewFindingId;
+        AddScopeParameters(command, scope);
         var updatedUtc = (DateTime?)await command.ExecuteScalarAsync(cancellationToken);
         return updatedUtc is null ? null : DateTime.SpecifyKind(updatedUtc.Value, DateTimeKind.Utc);
     }
@@ -115,12 +122,13 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
     public async Task<DateTime?> ReopenRunAsync(
         Guid reviewerId,
         Guid reviewRunId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             UPDATE feedback
             SET FeedbackStatus = N'Open',
                 UpdatedUtc = SYSUTCDATETIME()
@@ -133,10 +141,12 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
             WHERE feedback.ReviewerId = @ReviewerId
               AND run.ReviewRunId = @ReviewRunId
               AND run.ExpiresUtc > SYSUTCDATETIME()
+              AND {ScopeCondition}
               AND feedback.FeedbackStatus = N'Closed';
             """;
         command.Parameters.Add("@ReviewerId", SqlDbType.UniqueIdentifier).Value = reviewerId;
         command.Parameters.Add("@ReviewRunId", SqlDbType.UniqueIdentifier).Value = reviewRunId;
+        AddScopeParameters(command, scope);
         var updatedUtc = (DateTime?)await command.ExecuteScalarAsync(cancellationToken);
         if (updatedUtc is not null)
         {
@@ -144,25 +154,28 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
         }
 
         await using var exists = connection.CreateCommand();
-        exists.CommandText = """
+        exists.CommandText = $"""
             SELECT ReviewedUtc
             FROM dbo.BiAgentReviewRuns
             WHERE ReviewRunId = @ReviewRunId
-              AND ExpiresUtc > SYSUTCDATETIME();
+              AND ExpiresUtc > SYSUTCDATETIME()
+              AND {ScopeCondition};
             """;
         exists.Parameters.Add("@ReviewRunId", SqlDbType.UniqueIdentifier).Value = reviewRunId;
+        AddScopeParameters(exists, scope);
         var reviewedUtc = (DateTime?)await exists.ExecuteScalarAsync(cancellationToken);
         return reviewedUtc is null ? null : DateTime.SpecifyKind(reviewedUtc.Value, DateTimeKind.Utc);
     }
 
     public async Task<IReadOnlyList<ReviewFeedbackEntry>> GetRecentAsync(
         int limit,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT TOP (@Limit)
                 feedback.ReviewerId,
                 feedback.ReviewFindingId,
@@ -181,11 +194,13 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
                 ON finding.ReviewFindingId = feedback.ReviewFindingId
             LEFT JOIN dbo.BiAgentReviewRuns AS run
                 ON run.ReviewRunId = finding.ReviewRunId
-            WHERE feedback.ReviewFindingId IS NULL
-               OR run.ExpiresUtc > SYSUTCDATETIME()
+            WHERE (@ScopeType IS NULL AND
+                   (feedback.ReviewFindingId IS NULL OR run.ExpiresUtc > SYSUTCDATETIME()))
+               OR (run.ExpiresUtc > SYSUTCDATETIME() AND {ScopeCondition})
             ORDER BY feedback.UpdatedUtc DESC;
             """;
         command.Parameters.Add("@Limit", SqlDbType.Int).Value = limit;
+        AddScopeParameters(command, scope);
 
         var entries = new List<ReviewFeedbackEntry>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -212,12 +227,13 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
     public async Task<IReadOnlyList<ReviewDashboardRun>> GetDashboardAsync(
         Guid reviewerId,
         int limit,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT TOP (@Limit)
                 run.ReviewRunId,
                 run.ProjectName,
@@ -241,11 +257,13 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
                 ON feedback.ReviewFindingId = finding.ReviewFindingId
                AND feedback.ReviewerId = @ReviewerId
             WHERE run.ExpiresUtc > SYSUTCDATETIME()
+              AND {ScopeCondition}
             GROUP BY run.ReviewRunId, run.ProjectName, run.ReviewedUtc
             ORDER BY run.ReviewedUtc DESC;
             """;
         command.Parameters.Add("@Limit", SqlDbType.Int).Value = limit;
         command.Parameters.Add("@ReviewerId", SqlDbType.UniqueIdentifier).Value = reviewerId;
+        AddScopeParameters(command, scope);
 
         var items = new List<ReviewDashboardRun>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -269,12 +287,13 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
     public async Task<IReadOnlyList<ReviewFeedbackEntry>> GetForRunAsync(
         Guid reviewerId,
         Guid reviewRunId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT
                 feedback.ReviewerId,
                 feedback.ReviewFindingId,
@@ -296,10 +315,12 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
             WHERE feedback.ReviewerId = @ReviewerId
               AND run.ReviewRunId = @ReviewRunId
               AND run.ExpiresUtc > SYSUTCDATETIME()
+              AND {ScopeCondition}
             ORDER BY finding.FindingOrdinal;
             """;
         command.Parameters.Add("@ReviewerId", SqlDbType.UniqueIdentifier).Value = reviewerId;
         command.Parameters.Add("@ReviewRunId", SqlDbType.UniqueIdentifier).Value = reviewRunId;
+        AddScopeParameters(command, scope);
 
         var entries = new List<ReviewFeedbackEntry>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -323,4 +344,26 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
         return entries;
     }
 
+    private static void AddScopeParameters(SqlCommand command, ActiveWorkspaceScope? scope)
+    {
+        command.Parameters.Add("@ScopeType", SqlDbType.NVarChar, 20).Value =
+            scope is null ? DBNull.Value : scope.ScopeType;
+        command.Parameters.Add("@ScopeId", SqlDbType.UniqueIdentifier).Value =
+            scope is null ? DBNull.Value : scope.ScopeId;
+    }
+
+    private const string ScopeCondition = """
+        (@ScopeType IS NULL OR
+          (@ScopeType = N'Organization' AND
+            (run.OrganizationId = @ScopeId
+             OR run.ProjectScopeId IN (SELECT ProjectId FROM dbo.BiAgentProjects WHERE OrganizationId = @ScopeId)
+             OR run.TeamScopeId IN
+                 (SELECT team.TeamId FROM dbo.BiAgentTeams AS team
+                  INNER JOIN dbo.BiAgentProjects AS project ON project.ProjectId = team.ProjectId
+                  WHERE project.OrganizationId = @ScopeId))
+           OR @ScopeType = N'Project' AND
+            (run.ProjectScopeId = @ScopeId
+             OR run.TeamScopeId IN (SELECT TeamId FROM dbo.BiAgentTeams WHERE ProjectId = @ScopeId))
+           OR @ScopeType = N'Team' AND run.TeamScopeId = @ScopeId)
+        """;
 }

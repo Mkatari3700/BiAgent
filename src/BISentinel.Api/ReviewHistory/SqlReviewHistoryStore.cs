@@ -1,6 +1,7 @@
 using System.Data;
 using Microsoft.Data.SqlClient;
 using BISentinel.Api.Reviews;
+using BISentinel.Api.Security;
 
 namespace BISentinel.Api.ReviewHistory;
 
@@ -19,7 +20,8 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
         PbipReviewResult review,
         int retentionDays,
         Guid uploadedByUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null)
     {
         var projectName = ReviewProjectName.GetBaseName(review.ProjectName);
         var savedReview = review with { ProjectName = projectName };
@@ -45,12 +47,18 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
                 FROM dbo.BiAgentReviewRuns WITH (UPDLOCK, HOLDLOCK)
                 WHERE UploadedByUserId = @UploadedByUserId
                   AND (ProjectName = @ProjectName
-                   OR ProjectName LIKE @VersionedNamePattern ESCAPE '~');
+                   OR ProjectName LIKE @VersionedNamePattern ESCAPE '~')
+                  AND ((@ScopeType IS NULL AND OrganizationId IS NULL
+                        AND ProjectScopeId IS NULL AND TeamScopeId IS NULL)
+                    OR (@ScopeType = N'Organization' AND OrganizationId = @ScopeId)
+                    OR (@ScopeType = N'Project' AND ProjectScopeId = @ScopeId)
+                    OR (@ScopeType = N'Team' AND TeamScopeId = @ScopeId));
                 """;
             command.Parameters.Add("@UploadedByUserId", SqlDbType.UniqueIdentifier).Value = uploadedByUserId;
             command.Parameters.Add("@ProjectName", SqlDbType.NVarChar, 400).Value = projectName;
             command.Parameters.Add("@VersionedNamePattern", SqlDbType.NVarChar, 410).Value =
                 EscapeLikePattern(projectName) + " (%";
+            AddScopeParameters(command, scope);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             while (await reader.ReadAsync(cancellationToken))
             {
@@ -203,11 +211,11 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
             command.CommandText = """
                 INSERT INTO dbo.BiAgentReviewRuns
                     (ReviewRunId, UploadedByUserId, ProjectId, ProjectName, TablesChecked, MeasuresChecked, RelationshipsChecked,
-                     ChecksRun, FindingsCount, ReviewedUtc, ExpiresUtc)
+                     ChecksRun, FindingsCount, ReviewedUtc, ExpiresUtc, OrganizationId, ProjectScopeId, TeamScopeId)
                 VALUES
                     (@ReviewRunId, @UploadedByUserId, @ProjectId, @ProjectName, @TablesChecked, @MeasuresChecked, @RelationshipsChecked,
                      @ChecksRun, @FindingsCount, SYSUTCDATETIME(),
-                     DATEADD(day, @RetentionDays, SYSUTCDATETIME()));
+                     DATEADD(day, @RetentionDays, SYSUTCDATETIME()), @OrganizationId, @ProjectScopeId, @TeamScopeId);
 
                 SELECT ReviewedUtc, ExpiresUtc
                 FROM dbo.BiAgentReviewRuns
@@ -223,6 +231,7 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
             command.Parameters.Add("@ChecksRun", SqlDbType.Int).Value = savedReview.ChecksRun;
             command.Parameters.Add("@FindingsCount", SqlDbType.Int).Value = savedReview.Findings.Count;
             command.Parameters.Add("@RetentionDays", SqlDbType.Int).Value = retentionDays;
+            AddScopeParameters(command, scope);
 
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken))
@@ -340,28 +349,41 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
         int limit,
         string? projectName,
         Guid? uploadedByUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
         command.CommandText = """
             SELECT TOP (@Limit)
-                ProjectId,
-                ReviewRunId,
-                ProjectName,
-                ReviewedUtc,
-                ExpiresUtc,
-                TablesChecked,
-                MeasuresChecked,
-                RelationshipsChecked,
-                ChecksRun,
-                FindingsCount
-            FROM dbo.BiAgentReviewRuns
-            WHERE ExpiresUtc > SYSUTCDATETIME()
-              AND (@UploadedByUserId IS NULL OR UploadedByUserId = @UploadedByUserId)
-              AND (@ProjectName IS NULL OR ProjectName LIKE @ProjectName ESCAPE '~')
-            ORDER BY ReviewedUtc DESC;
+                run.ProjectId,
+                run.ReviewRunId,
+                run.ProjectName,
+                run.ReviewedUtc,
+                run.ExpiresUtc,
+                run.TablesChecked,
+                run.MeasuresChecked,
+                run.RelationshipsChecked,
+                run.ChecksRun,
+                run.FindingsCount
+            FROM dbo.BiAgentReviewRuns AS run
+            WHERE run.ExpiresUtc > SYSUTCDATETIME()
+              AND (@UploadedByUserId IS NULL OR run.UploadedByUserId = @UploadedByUserId)
+              AND (@ProjectName IS NULL OR run.ProjectName LIKE @ProjectName ESCAPE '~')
+              AND (@ScopeType IS NULL OR
+                (@ScopeType = N'Organization' AND
+                  (run.OrganizationId = @ScopeId
+                   OR run.ProjectScopeId IN (SELECT ProjectId FROM dbo.BiAgentProjects WHERE OrganizationId = @ScopeId)
+                   OR run.TeamScopeId IN
+                       (SELECT team.TeamId FROM dbo.BiAgentTeams AS team
+                        INNER JOIN dbo.BiAgentProjects AS project ON project.ProjectId = team.ProjectId
+                        WHERE project.OrganizationId = @ScopeId))
+                 OR @ScopeType = N'Project' AND
+                  (run.ProjectScopeId = @ScopeId
+                   OR run.TeamScopeId IN (SELECT TeamId FROM dbo.BiAgentTeams WHERE ProjectId = @ScopeId))
+                 OR @ScopeType = N'Team' AND run.TeamScopeId = @ScopeId)
+            ORDER BY run.ReviewedUtc DESC;
             """;
         command.Parameters.Add("@Limit", SqlDbType.Int).Value = limit;
         command.Parameters.Add("@UploadedByUserId", SqlDbType.UniqueIdentifier).Value =
@@ -373,6 +395,7 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
             .Replace("[", "~[", StringComparison.Ordinal);
         command.Parameters.Add("@ProjectName", SqlDbType.NVarChar, 802).Value =
             escapedProjectName is null ? DBNull.Value : $"%{escapedProjectName}%";
+        AddScopeParameters(command, scope);
 
         var summaries = new List<ReviewHistorySummary>();
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
@@ -387,7 +410,8 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
     public async Task<ReviewHistoryEntry?> GetAsync(
         Guid reviewRunId,
         Guid? uploadedByUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -410,11 +434,24 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
                 FROM dbo.BiAgentReviewRuns r
                 WHERE ReviewRunId = @ReviewRunId
                   AND (@UploadedByUserId IS NULL OR UploadedByUserId = @UploadedByUserId)
-                  AND ExpiresUtc > SYSUTCDATETIME();
+                  AND ExpiresUtc > SYSUTCDATETIME()
+                  AND (@ScopeType IS NULL OR
+                    (@ScopeType = N'Organization' AND
+                      (r.OrganizationId = @ScopeId
+                       OR r.ProjectScopeId IN (SELECT ProjectId FROM dbo.BiAgentProjects WHERE OrganizationId = @ScopeId)
+                       OR r.TeamScopeId IN
+                           (SELECT team.TeamId FROM dbo.BiAgentTeams AS team
+                            INNER JOIN dbo.BiAgentProjects AS project ON project.ProjectId = team.ProjectId
+                            WHERE project.OrganizationId = @ScopeId))
+                     OR @ScopeType = N'Project' AND
+                      (r.ProjectScopeId = @ScopeId
+                       OR r.TeamScopeId IN (SELECT TeamId FROM dbo.BiAgentTeams WHERE ProjectId = @ScopeId))
+                     OR @ScopeType = N'Team' AND r.TeamScopeId = @ScopeId);
                 """;
             command.Parameters.Add("@ReviewRunId", SqlDbType.UniqueIdentifier).Value = reviewRunId;
             command.Parameters.Add("@UploadedByUserId", SqlDbType.UniqueIdentifier).Value =
                 uploadedByUserId is null ? DBNull.Value : uploadedByUserId.Value;
+            AddScopeParameters(command, scope);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken))
             {
@@ -464,4 +501,17 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
             reader.GetInt32(8),
             reader.GetInt32(9));
 
+    private static void AddScopeParameters(SqlCommand command, ActiveWorkspaceScope? scope)
+    {
+        command.Parameters.Add("@ScopeType", SqlDbType.NVarChar, 20).Value =
+            scope is null ? DBNull.Value : scope.ScopeType;
+        command.Parameters.Add("@ScopeId", SqlDbType.UniqueIdentifier).Value =
+            scope is null ? DBNull.Value : scope.ScopeId;
+        command.Parameters.Add("@OrganizationId", SqlDbType.UniqueIdentifier).Value =
+            scope?.ScopeType == "Organization" ? scope.ScopeId : DBNull.Value;
+        command.Parameters.Add("@ProjectScopeId", SqlDbType.UniqueIdentifier).Value =
+            scope?.ScopeType == "Project" ? scope.ScopeId : DBNull.Value;
+        command.Parameters.Add("@TeamScopeId", SqlDbType.UniqueIdentifier).Value =
+            scope?.ScopeType == "Team" ? scope.ScopeId : DBNull.Value;
+    }
 }

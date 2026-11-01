@@ -46,7 +46,12 @@ public sealed record ApplicationUserSession(
     bool IsLead,
     bool IsEnabled,
     bool IsBootstrapAdmin,
-    DateTimeOffset FirstSeenUtc);
+    DateTimeOffset FirstSeenUtc)
+{
+    public bool IsOrgLead { get; init; }
+    public bool IsProjectLead { get; init; }
+    public bool IsTeamLead { get; init; }
+}
 
 /// <summary>Represents a signed-in BI Sentinel user and their in-app role.</summary>
 public sealed record ApplicationUserSummary(
@@ -69,7 +74,13 @@ public sealed record ApplicationAuthSessionResponse(
     bool IsAdmin,
     bool IsManager,
     bool IsLead,
-    bool IsBootstrapAdmin);
+    bool IsBootstrapAdmin)
+{
+    public bool IsOrgLead { get; init; }
+    public bool IsProjectLead { get; init; }
+    public bool IsTeamLead { get; init; }
+    public bool AccessGranted { get; init; }
+}
 
 /// <summary>Specifies the administrator status to assign to an application user.</summary>
 public sealed record SetApplicationUserAdminRequest
@@ -143,7 +154,7 @@ public sealed class SqlApplicationUserStore(string connectionString) : IApplicat
             else
             {
                 userId = Guid.NewGuid();
-                isEnabled = true;
+                isEnabled = objectId == bootstrapAdminObjectId;
                 firstSeenUtc = DateTimeOffset.MinValue;
                 isNewUser = true;
             }
@@ -157,7 +168,7 @@ public sealed class SqlApplicationUserStore(string connectionString) : IApplicat
                     (UserId, TenantId, EntraObjectId, DisplayName, EmailAddress, IsEnabled)
                 OUTPUT inserted.FirstSeenUtc
                 VALUES
-                    (@UserId, @TenantId, @EntraObjectId, @DisplayName, @EmailAddress, 1);
+                    (@UserId, @TenantId, @EntraObjectId, @DisplayName, @EmailAddress, @IsEnabled);
                 """,
                 connection,
                 transaction);
@@ -166,9 +177,9 @@ public sealed class SqlApplicationUserStore(string connectionString) : IApplicat
             command.Parameters.Add("@EntraObjectId", SqlDbType.UniqueIdentifier).Value = objectId;
             AddNullableText(command, "@DisplayName", normalizedName);
             AddNullableText(command, "@EmailAddress", normalizedEmail);
+            command.Parameters.Add("@IsEnabled", SqlDbType.Bit).Value = isEnabled;
             firstSeenUtc = (DateTimeOffset)(await command.ExecuteScalarAsync(cancellationToken)
                 ?? throw new InvalidOperationException("The application user's creation time could not be read."));
-            isEnabled = true;
         }
         else
         {
@@ -220,6 +231,9 @@ public sealed class SqlApplicationUserStore(string connectionString) : IApplicat
         bool isAdmin;
         bool isManager;
         bool isLead;
+        bool isOrgLead;
+        bool isProjectLead;
+        bool isTeamLead;
         await using (var command = new SqlCommand(
             """
             SELECT
@@ -237,6 +251,21 @@ public sealed class SqlApplicationUserStore(string connectionString) : IApplicat
                 (
                     SELECT 1 FROM dbo.BiAgentApplicationUserRoles
                     WHERE UserId = @UserId AND RoleName = N'ReviewLead'
+                ) THEN 1 ELSE 0 END),
+                CONVERT(bit, CASE WHEN EXISTS
+                (
+                    SELECT 1 FROM dbo.BiAgentUserScopeAssignments
+                    WHERE UserId = @UserId AND RoleName = N'OrgLead'
+                ) THEN 1 ELSE 0 END),
+                CONVERT(bit, CASE WHEN EXISTS
+                (
+                    SELECT 1 FROM dbo.BiAgentUserScopeAssignments
+                    WHERE UserId = @UserId AND RoleName = N'ProjectLead'
+                ) THEN 1 ELSE 0 END),
+                CONVERT(bit, CASE WHEN EXISTS
+                (
+                    SELECT 1 FROM dbo.BiAgentUserScopeAssignments
+                    WHERE UserId = @UserId AND RoleName = N'TeamLead'
                 ) THEN 1 ELSE 0 END);
             """,
             connection,
@@ -253,6 +282,9 @@ public sealed class SqlApplicationUserStore(string connectionString) : IApplicat
                 isAdmin = reader.GetBoolean(0);
                 isManager = reader.GetBoolean(1);
                 isLead = reader.GetBoolean(2);
+                isOrgLead = reader.GetBoolean(3);
+                isProjectLead = reader.GetBoolean(4);
+                isTeamLead = reader.GetBoolean(5);
             }
         }
 
@@ -268,7 +300,12 @@ public sealed class SqlApplicationUserStore(string connectionString) : IApplicat
             isLead,
             isEnabled,
             isBootstrapAdmin,
-            firstSeenUtc);
+            firstSeenUtc)
+        {
+            IsOrgLead = isOrgLead,
+            IsProjectLead = isProjectLead,
+            IsTeamLead = isTeamLead
+        };
     }
 
     public async Task<IReadOnlyList<ApplicationUserSummary>> GetUsersAsync(

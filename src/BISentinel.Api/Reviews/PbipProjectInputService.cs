@@ -14,6 +14,22 @@ public sealed class PbipProjectInputService(
     public async Task<PbipReviewResult> ReviewArchiveAsync(
         IFormFile archiveFile,
         string? projectId,
+        CancellationToken cancellationToken) =>
+        await ProcessArtifactAsync(
+            archiveFile,
+            allowLooseArtifacts: false,
+            (projectPath, projectName, token) =>
+                reviewer.ReviewAsync(
+                    projectPath,
+                    ResolveProjectId(projectId, projectName ?? archiveFile.FileName),
+                    projectName,
+                    token),
+            cancellationToken);
+
+    public async Task<T> ProcessArtifactAsync<T>(
+        IFormFile archiveFile,
+        bool allowLooseArtifacts,
+        Func<string, string?, CancellationToken, Task<T>> processProject,
         CancellationToken cancellationToken)
     {
         if (archiveFile.Length <= 0 || archiveFile.Length > MaximumUploadBytes)
@@ -24,7 +40,10 @@ public sealed class PbipProjectInputService(
         var extension = Path.GetExtension(archiveFile.FileName);
         if (extension.Equals(".pbit", StringComparison.OrdinalIgnoreCase))
         {
-            return await ReviewTemplateUploadAsync(archiveFile, projectId, cancellationToken);
+            return await ProcessTemplateUploadAsync(
+                archiveFile,
+                processProject,
+                cancellationToken);
         }
 
         if (extension.Equals(".pbix", StringComparison.OrdinalIgnoreCase))
@@ -34,7 +53,44 @@ public sealed class PbipProjectInputService(
 
         if (!extension.Equals(".zip", StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidDataException("Upload a complete PBIP/PBIR project ZIP or a .pbit template.");
+            if (allowLooseArtifacts &&
+                (extension.Equals(".bim", StringComparison.OrdinalIgnoreCase) ||
+                 extension.Equals(".tmdl", StringComparison.OrdinalIgnoreCase) ||
+                 extension.Equals(".dax", StringComparison.OrdinalIgnoreCase)))
+            {
+                var artifactRoot = Path.Combine(Path.GetTempPath(), "BISentinel", Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(artifactRoot);
+                try
+                {
+                    var artifactPath = Path.Combine(artifactRoot, Path.GetFileName(archiveFile.FileName));
+                    await using (var output = new FileStream(
+                        artifactPath,
+                        FileMode.CreateNew,
+                        FileAccess.Write,
+                        FileShare.None,
+                        64 * 1024,
+                        FileOptions.Asynchronous))
+                    {
+                        await archiveFile.CopyToAsync(output, cancellationToken);
+                    }
+
+                    return await processProject(
+                        artifactPath,
+                        extension.Equals(".bim", StringComparison.OrdinalIgnoreCase)
+                            ? null
+                            : Path.GetFileNameWithoutExtension(artifactPath),
+                        cancellationToken);
+                }
+                finally
+                {
+                    Directory.Delete(artifactRoot, recursive: true);
+                }
+            }
+
+            throw new InvalidDataException(
+                allowLooseArtifacts
+                    ? "Upload a PBIP/PBIR project ZIP, PBIT template, Model.bim, TMDL, or DAX file."
+                    : "Upload a complete PBIP/PBIR project ZIP or a .pbit template.");
         }
 
         var temporaryRoot = Path.Combine(Path.GetTempPath(), "BISentinel", Guid.NewGuid().ToString("N"));
@@ -98,10 +154,9 @@ public sealed class PbipProjectInputService(
             {
                 var projectRoot = Path.GetDirectoryName(projectFiles[0])
                     ?? throw new InvalidDataException("The PBIP project folder could not be resolved.");
-                return await reviewer.ReviewAsync(
+                return await processProject(
                     projectRoot,
-                    ResolveProjectId(projectId, projectFiles[0]),
-                    null,
+                    Path.GetFileNameWithoutExtension(projectFiles[0]),
                     cancellationToken);
             }
 
@@ -113,20 +168,62 @@ public sealed class PbipProjectInputService(
                         File.Exists(Path.Combine(reportRoot, "definition", "pages", "pages.json"));
                 })
                 .ToArray();
-            if (reportDescriptors.Length != 1)
+            if (allowLooseArtifacts)
             {
-                throw new InvalidDataException(
-                    "Upload a ZIP containing one complete PBIP project (including all referenced report and semantic-model folders) or one standalone PBIR report.");
+                var bimFiles = Directory.GetFiles(temporaryRoot, "*.bim", SearchOption.AllDirectories);
+                if (bimFiles.Length == 1)
+                {
+                    return await processProject(
+                        temporaryRoot,
+                        null,
+                        cancellationToken);
+                }
+                if (bimFiles.Length > 1)
+                {
+                    throw new InvalidDataException("The uploaded archive contains more than one Model.bim file.");
+                }
+
+                if (reportDescriptors.Length > 1)
+                {
+                    throw new InvalidDataException("The uploaded archive contains more than one report definition.");
+                }
+
+                if (reportDescriptors.Length == 1)
+                {
+                    if (Directory.GetFiles(temporaryRoot, "*.tmdl", SearchOption.AllDirectories).Length > 0)
+                    {
+                        return await processProject(
+                            temporaryRoot,
+                            Path.GetFileNameWithoutExtension(archiveFile.FileName),
+                            cancellationToken);
+                    }
+
+                    var pbirRoot = Path.GetDirectoryName(reportDescriptors[0])
+                        ?? throw new InvalidDataException("The standalone PBIR report folder could not be resolved.");
+                    return await processProject(
+                        pbirRoot,
+                        Path.GetFileNameWithoutExtension(archiveFile.FileName),
+                        cancellationToken);
+                }
+
+                if (Directory.GetFiles(temporaryRoot, "*.tmdl", SearchOption.AllDirectories).Length > 0 ||
+                    Directory.GetFiles(temporaryRoot, "*.dax", SearchOption.AllDirectories).Length > 0)
+                {
+                    return await processProject(temporaryRoot, Path.GetFileName(archiveFile.FileName), cancellationToken);
+                }
             }
 
-            var pbirRoot = Path.GetDirectoryName(reportDescriptors[0])
-                ?? throw new InvalidDataException("The standalone PBIR report folder could not be resolved.");
-            var projectName = Path.GetFileNameWithoutExtension(archiveFile.FileName);
-            return await reviewer.ReviewAsync(
-                pbirRoot,
-                ResolveProjectId(projectId, archiveFile.FileName),
-                projectName,
-                cancellationToken);
+            if (reportDescriptors.Length == 1)
+            {
+                var pbirRoot = Path.GetDirectoryName(reportDescriptors[0])
+                    ?? throw new InvalidDataException("The standalone PBIR report folder could not be resolved.");
+                var projectName = Path.GetFileNameWithoutExtension(archiveFile.FileName);
+                return await processProject(pbirRoot, projectName, cancellationToken);
+            }
+
+            throw new InvalidDataException(reportDescriptors.Length > 1
+                ? "The uploaded ZIP must contain only one PBIP project or one standalone PBIR report."
+                : "Upload a ZIP containing one complete PBIP project (including its report and semantic-model folders) or one standalone PBIR report.");
         }
         finally
         {
@@ -134,9 +231,9 @@ public sealed class PbipProjectInputService(
         }
     }
 
-    private async Task<PbipReviewResult> ReviewTemplateUploadAsync(
+    private async Task<T> ProcessTemplateUploadAsync<T>(
         IFormFile file,
-        string? projectId,
+        Func<string, string?, CancellationToken, Task<T>> processProject,
         CancellationToken cancellationToken)
     {
         var temporaryRoot = Path.Combine(Path.GetTempPath(), "BISentinel", Guid.NewGuid().ToString("N"));
@@ -157,30 +254,17 @@ public sealed class PbipProjectInputService(
                 await file.CopyToAsync(output, cancellationToken);
             }
 
-            return await ExtractAndReviewAsync(inputPath, projectId, cancellationToken);
+            var extractedPath = Path.Combine(temporaryRoot, "extracted");
+            await pbiToolsExtractor.ExtractAsync(inputPath, extractedPath, cancellationToken);
+            return await processProject(
+                extractedPath,
+                Path.GetFileNameWithoutExtension(inputPath),
+                cancellationToken);
         }
         finally
         {
             Directory.Delete(temporaryRoot, recursive: true);
         }
-    }
-
-    private async Task<PbipReviewResult> ExtractAndReviewAsync(
-        string inputPath,
-        string? projectId,
-        CancellationToken cancellationToken,
-        string? temporaryRoot = null)
-    {
-        temporaryRoot ??= Path.GetDirectoryName(inputPath)
-            ?? throw new InvalidDataException("The uploaded Power BI file could not be located.");
-        var extractedPath = Path.Combine(temporaryRoot, "extracted");
-        await pbiToolsExtractor.ExtractAsync(inputPath, extractedPath, cancellationToken);
-
-        return await reviewer.ReviewAsync(
-            extractedPath,
-            ResolveProjectId(projectId, inputPath),
-            Path.GetFileNameWithoutExtension(inputPath),
-            cancellationToken);
     }
 
     private static string GetArchiveDestination(string temporaryRoot, ZipArchiveEntry entry)

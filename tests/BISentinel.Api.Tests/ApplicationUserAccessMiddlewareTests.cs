@@ -141,6 +141,78 @@ public sealed class ApplicationUserAccessMiddlewareTests
         Assert.False(context.User.IsInRole("ApplicationAdmin"));
     }
 
+    [Fact]
+    public async Task InvokeAsync_AllowsUnapprovedUserToReachOnlyAccessRequestEndpoints()
+    {
+        var tenantId = Guid.NewGuid();
+        var objectId = Guid.NewGuid();
+        var user = new ApplicationUserSession(
+            Guid.NewGuid(),
+            tenantId,
+            objectId,
+            "Pending User",
+            "pending@example.com",
+            false,
+            false,
+            false,
+            false,
+            false,
+            DateTimeOffset.UtcNow);
+        var nextInvoked = false;
+        var context = CreateAuthenticatedContext(tenantId, objectId, "/api/access-requests/mine");
+        var middleware = new ApplicationUserAccessMiddleware(
+            _ =>
+            {
+                nextInvoked = true;
+                return Task.CompletedTask;
+            },
+            new StubApplicationUserStore(user),
+            new ApplicationAuthenticationSettings(tenantId, Guid.NewGuid()),
+            NullLogger<ApplicationUserAccessMiddleware>.Instance);
+
+        await middleware.InvokeAsync(context);
+
+        Assert.True(nextInvoked);
+        Assert.False(context.User.IsInRole("ApplicationUser"));
+        Assert.Same(user, ApplicationUserContext.Get(context));
+    }
+
+    [Fact]
+    public async Task InvokeAsync_BlocksUnapprovedUserFromApplicationApiEndpoints()
+    {
+        var tenantId = Guid.NewGuid();
+        var objectId = Guid.NewGuid();
+        var user = new ApplicationUserSession(
+            Guid.NewGuid(),
+            tenantId,
+            objectId,
+            "Pending User",
+            "pending@example.com",
+            false,
+            false,
+            false,
+            false,
+            false,
+            DateTimeOffset.UtcNow);
+        var nextInvoked = false;
+        var context = CreateAuthenticatedContext(tenantId, objectId, "/api/dashboard/summary");
+        var middleware = new ApplicationUserAccessMiddleware(
+            _ =>
+            {
+                nextInvoked = true;
+                return Task.CompletedTask;
+            },
+            new StubApplicationUserStore(user),
+            new ApplicationAuthenticationSettings(tenantId, Guid.NewGuid()),
+            NullLogger<ApplicationUserAccessMiddleware>.Instance);
+
+        await middleware.InvokeAsync(context);
+
+        Assert.False(nextInvoked);
+        Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+        Assert.False(context.User.IsInRole("ApplicationUser"));
+    }
+
     private static DefaultHttpContext CreateAuthenticatedContext(
         Guid tenantId,
         Guid objectId,

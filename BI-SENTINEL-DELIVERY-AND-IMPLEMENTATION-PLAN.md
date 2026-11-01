@@ -3,7 +3,7 @@
 **Audience:** Business Analyst (BA), Power BI developers, .NET developers, data/platform engineers, security reviewers, and pilot stakeholders  
 **Status:** Initial delivery baseline; decisions marked **TBD** require stakeholder confirmation  
 **Product:** BI Sentinel  
-**Last updated:** 2026-10-26
+**Last updated:** 2026-11-01
 
 ## 1. Purpose
 
@@ -298,6 +298,24 @@ Pilot stakeholders review the agreed success measures and decide whether to fix,
 
 Security, identity, BI platform, and product owners approve the permission model, data flow, support process, and tenant deployment. Every integration has a documented disabled/offline behavior and test coverage.
 
+#### Partner-company Entra onboarding — not implemented
+
+The current app is **single-tenant**: `Authentication:Entra:TenantId` selects the tenant authority, and sign-in is limited to that tenant. Adding Infosys or Wipro as a BI Sentinel Organization does not permit identities from their Entra tenants to sign in. Inviting an individual as a B2B guest into the configured tenant is the current supported route; the existing pending-access/request-and-approval workflow remains an additional BI Sentinel authorization gate.
+
+Supporting direct sign-in from partner organizational tenants is **not a configuration-only change**. The registration must be changed to support organizational accounts and each partner must complete the approved consent/service-principal process. The application must also change its authority and issuer validation, explicitly onboard/allow-list tenant IDs, and map each accepted Entra tenant to the approved BI Sentinel organization context. Never trust email domains for tenant authorization and never disable issuer validation to make multitenant login work.
+
+**Current limitation:** Users are uniquely identified by `(TenantId, EntraObjectId)`, but the Organization → Project → Team hierarchy is a separate app-level construct. A header-selected hierarchy scope filters portal/dashboard, support, and persisted PBIP review history, submissions, and feedback. Governance and online Power BI review are still Power BI-wide and have no hierarchy-to-workspace mapping; Performance Optimization is a stateless upload assessment. There is no enforced Entra-tenant-to-BI-organization mapping, so do not enable direct multitenant access or claim cross-company isolation until that mapping and end-to-end authorization are implemented and independently tested.
+
+**Required implementation and rollout gates**
+
+1. Decide and document the tenant-to-organization cardinality (one Entra tenant per BI Sentinel Organization, or an explicitly supported alternative), tenant approval/ownership, first Org Lead provisioning, consent permissions, and offboarding/data-retention rules.
+2. Implement auditable partner-tenant onboarding state keyed by Entra tenant GUID; validate each sign-in token's tenant ID and issuer against an enabled approved entry. Reject unapproved tenants, unsupported account types, and invalid issuers.
+3. Enforce the resolved tenant/organization context in all APIs, database queries, access requests, and persisted module data—not only in navigation/UI. Keep identity authentication separate from scope/role assignment and approval.
+4. Have each partner tenant administrator consent to the reviewed permissions and create/approve the enterprise application where required. Restrict redirect URIs to approved HTTPS callbacks.
+5. Test approved and unapproved tenants, tenant/organization boundary reads and writes across every module, guest support if retained, user onboarding and escalation, and tenant offboarding. Require security review and product/platform-owner approval before production rollout.
+
+The detailed operator checklist and the guest-vs-direct-sign-in distinction are in the README section **Supporting users from Infosys, Wipro, or another Entra tenant**. Until all gates pass, retain single-tenant app configuration and use individually invited guests when approved.
+
 ### Phase 5 — Azure SQL migration and production rollout
 
 **Purpose:** Move the database and application to approved company infrastructure without losing traceability or operability.
@@ -319,35 +337,45 @@ The product owner and platform/security owners approve production readiness, mon
 
 ### Next module roadmap — ArchitectIQ modules
 
-The module names and high-level requirements below come from `ArchitectIQ_Modules_Requirements.docx`. Governance Audit is the selected next module for planning. This roadmap is planning only: it does not authorize implementation, tenant access, or production changes. Estimate sprint durations only after the discovery and access gates are completed.
+The module names and high-level outcomes below were transcribed from `ArchitectIQ_Modules_Requirements.docx`, which is not present in this checkout. Treat those outcomes as high-level references, not a complete or verified requirements baseline; reconcile them against the source document when it is available. Governance Audit has a separate implementation plan below. Performance Optimization is now the next module in discovery; this section proposes a bounded first release from the code and evidence sources currently available. It does not authorize new tenant access or production changes.
 
 | Module | DOCX outcome | Planning status |
 |---|---|---|
-| Governance Audit | Audit workspaces, datasets, reports, ownership, standards, orphan artifacts, failed refreshes, and governance gaps using Power BI API metadata | Selected next; phase plan below |
-| Performance Optimization | Identify DAX, dataset-design, cardinality, refresh, and query-performance bottlenecks | Next after Governance Audit; discovery preparation |
+| Governance Audit | Audit workspaces, datasets, reports, ownership, standards, orphan artifacts, failed refreshes, and governance gaps using Power BI API metadata | Read-only workflow implemented; rollout and access gates tracked below |
+| Performance Optimization | Identify DAX, dataset-design, cardinality, refresh, and query-performance bottlenecks | Upload-based static assessment implemented; runtime evidence and remaining gates are explicit |
 | Release Readiness | Assess naming, RLS, documentation, refresh validation, security, and deployment readiness | Later module; define how it consumes governance and review evidence |
 | Documentation Generator | Generate technical design documents, data dictionaries, measure catalogs, release notes, and architecture documentation | Later module; agree output formats and descriptions source |
 | Architecture Review | Assess semantic-model design, scalability, security, reusability, standards, and architectural maturity | Later module; define scored criteria and evidence |
 | BI Delivery Manager | Turn business requirements into stories, semantic models, KPIs, measures, visuals, and estimates | Later module; define supported workflow and human approval points |
 
-The product owner has selected Performance Optimization as the next module to prepare after Governance Audit. This establishes discovery priority only; it does not authorize implementation or new Power BI access. Performance Optimization and Architecture Review may share model metadata, but should not be combined without confirming a coherent user outcome.
+The product owner selected Performance Optimization as the next module after Governance Audit. The static workflow is implemented; this does not authorize new tenant access, runtime query collection, or production changes. The requirements source `ArchitectIQ_Modules_Requirements.docx` is not present in this checkout, so its high-level module outcomes still require reconciliation against the original.
 
-### Performance Optimization — discovery preparation
+### Performance Optimization — implemented static assessment and remaining gates
 
-**Proposed outcome:** Help a BI developer diagnose and prioritize performance problems in a selected semantic model and its reports. Findings should be advisory, reproducible, and supported by measurable evidence; the module must not change, refresh, or publish Power BI assets.
+**Available workflow:** When enabled in Administration, `/modules/performance-optimization` accepts a PBIP/PBIR ZIP, PBIT template, `Model.bim`, TMDL, or DAX upload and calls `POST /api/performance-optimization/assess`. The API reuses `PbipProjectInputService`'s upload limits, archive path protections, temporary extraction, and cleanup. The input is not persisted and the workflow does not modify or query Power BI Service.
 
-Before implementation, agree:
+**Inventories and analysis:** The assessment returns semantic-model/table/column/measure/calculated-column/calculated-table/relationship/partition/hierarchy inventories; report page/visual counts and detectable slicers/bookmarks/drillthrough/tooltip/formatting/interaction metadata; per-measure and calculated-column DAX text observations; reusable measures, hierarchies, and partitions; categorized findings; evidence gaps; Fabric/Premium readiness; and PO-0 through PO-3 gate status. `Model.bim`, TMDL, PBIP/PBIR definitions, PBIT extraction, and standalone DAX have static readers. Findings provide evidence, impact, recommendation, priority, expected benefit (never a percentage), evidence type, confidence, and risk. DAX expressions are inspected with static pattern matching, not executed or fully semantically parsed.
 
-- **Pilot and symptom:** Select one non-production workspace/model and one or two representative slow reports or queries. Name the user who will validate findings and describe the observed problem (for example, slow visuals, long refreshes, high memory, or expensive measures).
-- **First workflow:** Choose the primary MVP investigation—DAX/query execution, model size and cardinality, refresh duration, or report visual responsiveness. Keep other areas out of the first release unless they share the chosen evidence and a testable user outcome.
-- **Evidence and access:** Decide whether users provide PBIP/PBIR/PBIT files, the app reads approved Power BI metadata, or both. For each desired metric, confirm its source, freshness, availability in the target capacity/license, required permissions and tenant settings, and whether representative query traces or refresh history can be collected safely.
-- **Baseline and success:** Capture a before-state with agreed units and thresholds (such as query/visual duration, refresh duration, model memory, or row cardinality). Define how a pilot will demonstrate a useful, repeatable improvement without claiming that a static estimate guarantees production speed.
-- **Finding contract:** Agree how findings are ranked and presented: affected model/report object, measured or inferred impact, evidence and timestamp, confidence/data gaps, explanation, recommended next step, and an owner-facing severity. Separate measured facts from heuristic suggestions.
-- **Safety and privacy:** Set read-only boundaries, sample-data handling, tenant/workspace scope, retention, visibility, and any restrictions on query text or model expressions.
+**Opportunity taxonomy:** In this module, `OPT-001` is a syntactically identified low-risk/high-pattern-confidence candidate such as a direct `SUMX(Table, Table[Column])` pattern; `OPT-002` covers reference-based unused-object candidates requiring owner validation; `OPT-003` requires telemetry or benchmarking. These module classifications intentionally do not redefine `OPT-001`–`OPT-003` checks in Project Review or Governance Audit. No measure is automatically rewritten.
 
-**Discovery deliverables:** a pilot model/report and named validator; prioritized MVP symptom; evidence-source and permission matrix; recorded baseline and measurable acceptance criteria; example findings with expected evidence; and an approved privacy/access boundary.
+**Evidence boundary:** Cardinality and key uniqueness, row/distinct counts, model memory and dataset size, storage mode, refresh policy/history/duration, DAX query duration/plans, visual rendering duration, capacity/resource metrics, and DAX Studio/Performance Analyzer traces are reported as missing where not in the upload. Such values are never replaced with zero or inferred from names. Static observations and hypotheses are separated from measured evidence; measured issue count is zero unless an explicitly supported measurement source is added in a later approved phase. No performance gain is claimed without a measured baseline and comparison.
 
-**Exit gate:** the BI platform/security owners approve every live data source and the minimum permissions, while the product owner and pilot developer accept a bounded MVP and measurable baseline. Until then, keep Performance Optimization as a planned module; do not infer performance from unavailable metadata or present heuristic estimates as measured timings.
+#### Gate status and acceptance
+
+- **PO-0 — Discovery:** The run can inventory the uploaded artifact. This gate passes only when both the semantic model and report definitions are present; report-only or model-only uploads show the missing inventory and remain incomplete. Reconcile this implementation with the absent requirements source and approve representative pilot samples.
+- **PO-1 — Static analysis:** Passes for supported uploads that include both model and report definitions. Static DAX/model/report findings are version-independent observations; incomplete or unsupported input keeps this gate incomplete. Confirm parser coverage with representative PBIP, PBIR, PBIT, Model.bim, TMDL, and DAX fixtures.
+- **PO-2 — Evidence:** Blocked. Query/visual/refresh telemetry, resource usage, capacity metrics, and benchmark traces are not collected by this upload-only workflow. Define approved collection, permissions, sensitivity, freshness, workload, and baseline before adding these sources.
+- **PO-3 — Optimization readiness:** The response produces prioritized candidates, risk notes, and validation/acceptance criteria, but the gate remains blocked until its upstream evidence is available. It does not approve or apply changes. Benchmark and review each candidate with the model owner before implementation.
+
+Assessment output is currently returned for the active run only; there is no Performance Optimization history store. Add persistence only after the product owner approves retention and the minimum safe run/finding schema. Existing Review history and Governance Audit records are not reused as performance history.
+
+### Portal dashboard, online Project Review, profile, and support — implemented 2026-11-01
+
+- The application root now opens a module-tile dashboard. The **Working in** header selector sets the active Organization → Project → Team context. Root administrators can use **All organizations**; other users see only directly assigned scopes. Parent assignments provide descendant data access, but child assignments cannot select a broader parent. Dashboard totals, support records, PBIP review history, submissions, and reviewer feedback are filtered to the selected scope and its descendants. Non-administrators must have a selected scope for those APIs; access-request workflows remain available without one. Profile lists users whose roles apply to the active scope, including inherited parent roles and descendant scopes.
+- Project Review offers upload-based PBIP review and an online option. The online option enumerates only workspaces visible to the signed-in user's delegated Power BI identity; its output is stored in that user's review history when permitted. Because online Power BI data has no hierarchy-to-workspace mapping, Governance and online-review APIs reject scoped requests and are available only in the root administrator's **All organizations** context. The same restriction applies to Power BI Governance MCP tools. Performance Optimization analyzes the submitted file for the active request only; it is not persisted or partitioned by scope.
+- The header uses a profile menu instead of a persistent account name and removes the "BI Workspace" subtitle. Profile shows the organization identity and in-app roles. Module labels are shortened to **Project Review** and **Governance**.
+- The Support page lets users create requests and follow replies. ApplicationAdmins can list all requests, add a response, and set Open/In progress/Resolved status. Records are owner-scoped for users and stored in SQL.
+- Database migrations `007_create_governance_audit_configuration.sql` (for Governance counts), `018_create_support_requests.sql`, and `019_add_organization_project_team_hierarchy.sql` must be applied for their respective features; migration 018 follows `008_create_application_access.sql`. The application does not create schema on startup.
 
 ### Governance Audit — proposed phased delivery
 
@@ -539,16 +567,17 @@ Include:
 | Enterprise permissions or approvals arrive late | Integration schedule slips | Track each approval as a dependency with a named owner; demo core workflow without production tenant access |
 | Scope expands to all blueprint engines at once | MVP is delayed and hard to validate | Prioritize one workflow and a small rule set; defer Teams, Fabric breadth, scoring, and release blocking until validated |
 
-## 12. Decisions to record before implementation
+## 12. Decisions and rollout gates
 
 | Decision | Proposed default | Owner/status |
 |---|---|---|
 | First demo workflow | Review a PBIP project and return basic structural validations and deterministic findings | Agreed; refine with product owner |
 | Supported input format | PBIP/PBIR ZIP upload (preferred) or direct PBIT upload; PBIX rejected; PBIT requires compatible pbi-tools | Upload intake implemented; PBIT extraction and target-host compatibility remain to validate |
-| Next module | Governance Audit using Power BI workspace, dataset, report, ownership, and refresh metadata | Selected for planning; discovery and access approvals remain |
+| Performance Optimization formats | PBIP/PBIR ZIP, PBIT, Model.bim, TMDL definition/ZIP, and DAX; PBIX rejected | Static assessment parser and temporary upload intake implemented |
+| Initial module | Governance Audit using selected Power BI workspace and artifact metadata | Read-only selected-workspace workflow implemented; production/tenant readiness remains environment-specific |
 | Governance Audit access | Read-only Entra identity with least-privilege approved API permissions | Tenant/security/platform owners — TBD |
 | Governance terms | Auditable definitions for orphan, failed refresh, ownership gap, and standards violation | BI governance owner — TBD |
-| Next module after Governance Audit | Prioritize remaining DOCX modules using value, data readiness, dependencies, and effort | Product owner — TBD |
+| Next module after Governance Audit | Performance Optimization static assessment; add live telemetry only after a separate evidence/security approval | Selected by product owner; static workflow implemented, PO-2 blocked pending evidence sources |
 | Demo hosting | Windows developer machine or approved Windows host with SQL reachability | Platform/SQL owner — TBD |
 | SQL database permissions | Least privilege required for app schema and records | SQL owner — TBD |
 | Review history retention | Store minimal metadata; agree period before pilot data | Product/security owner — TBD |
@@ -567,7 +596,7 @@ Include:
 4. Prepare representative mocked API responses and, after approval, a non-production tenant test plan covering paging, throttling, incomplete scans, permissions, and reconciliation.
 5. Prioritize the initial Governance Audit checks and evidence sources with the BI governance owner; keep findings advisory and disallow automatic asset changes.
 6. Turn GA-0 deliverables into sprint-sized stories with dependencies and exit criteria. Do not begin live integration before its access/readiness gate is approved.
-7. After Governance Audit discovery, ask the product owner to prioritize the next module from the DOCX using business value, data readiness, dependencies, and effort.
+7. Pilot the implemented Performance Optimization assessment with representative non-sensitive PBIP/PBIR, PBIT, Model.bim, TMDL, and DAX inputs; reconcile it against the missing requirements source; and collect approved DAX Studio, Performance Analyzer, refresh, model-size, and capacity evidence before closing PO-2 or claiming measured impact.
 
 ## 14. Scope exclusions for the initial demo
 

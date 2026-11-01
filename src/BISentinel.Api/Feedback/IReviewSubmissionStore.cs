@@ -1,3 +1,5 @@
+using BISentinel.Api.Security;
+
 namespace BISentinel.Api.Feedback;
 
 public interface IReviewSubmissionStore
@@ -6,28 +8,34 @@ public interface IReviewSubmissionStore
         Guid reviewRunId,
         Guid submittedByUserId,
         IReadOnlyList<SubmitReviewFindingRequest> findings,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null);
 
     Task<ReviewSubmission?> GetMineAsync(
         Guid reviewRunId,
         Guid submittedByUserId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null);
 
     Task<ReviewSubmission?> GetAsync(
         Guid submissionId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null);
 
     Task<IReadOnlyList<ReviewSubmissionSummary>> GetQueueAsync(
         bool includeReviewed,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null);
 
     Task<IReadOnlyList<ReviewSubmissionSummary>> GetMyQueueAsync(
         Guid submittedByUserId,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null);
 
     Task<ReviewSubmission?> CompleteReviewAsync(
         Guid submissionId,
         Guid reviewerUserId,
         IReadOnlyList<ReviewSubmissionFindingRequest> findings,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null);
 }

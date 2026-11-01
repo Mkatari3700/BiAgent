@@ -1,5 +1,7 @@
 using BISentinel.Api.Feedback;
 using BISentinel.Api.GovernanceAudit;
+using BISentinel.Api.PerformanceOptimization;
+using BISentinel.Api.Portal;
 using BISentinel.Api.Reviews;
 using BISentinel.Api.ReviewHistory;
 using BISentinel.Api.Security;
@@ -18,6 +20,22 @@ using ModelContextProtocol.AspNetCore;
 const long MaximumUploadRequestBytes = 501L * 1024 * 1024;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddProblemDetails(options =>
+{
+    options.CustomizeProblemDetails = context =>
+    {
+        var detail = context.ProblemDetails.Detail;
+        var isDatabaseFailure =
+            detail?.Contains("database", StringComparison.OrdinalIgnoreCase) == true ||
+            detail?.Contains("migration", StringComparison.OrdinalIgnoreCase) == true ||
+            detail?.Contains("SQL permission", StringComparison.OrdinalIgnoreCase) == true;
+        if (!builder.Environment.IsDevelopment() && isDatabaseFailure)
+        {
+            context.ProblemDetails.Detail =
+                "A database operation failed. Verify database connectivity, required database migrations/scripts, and application database permissions.";
+        }
+    };
+});
 builder.Services.Configure<FormOptions>(options =>
     options.MultipartBodyLengthLimit = MaximumUploadRequestBytes);
 
@@ -87,6 +105,16 @@ if (entraAuthenticationEnabled)
                 if (existingRedirectHandler is not null)
                 {
                     await existingRedirectHandler(context);
+                }
+
+                if (context.Properties.Items.TryGetValue("PowerBiProjectReviewConsent", out var projectReviewConsent) &&
+                    string.Equals(projectReviewConsent, "true", StringComparison.Ordinal))
+                {
+                    var scopes = context.ProtocolMessage.Scope
+                        .Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                        .Concat(PowerBiOnlineReviewClient.RequiredScopes)
+                        .Distinct(StringComparer.OrdinalIgnoreCase);
+                    context.ProtocolMessage.Scope = string.Join(' ', scopes);
                 }
 
                 if (context.Properties.Items.TryGetValue("PowerBiConsent", out var consentRequested) &&
@@ -173,6 +201,9 @@ builder.Services.AddAuthorization(options =>
     options.AddPolicy("ApplicationAdmin", policy =>
         policy.RequireAuthenticatedUser()
             .RequireRole("ApplicationAdmin"));
+    options.AddPolicy("HierarchyManager", policy =>
+        policy.RequireAuthenticatedUser()
+            .RequireRole("ApplicationAdmin", "OrgLead", "ProjectLead", "TeamLead"));
     options.AddPolicy("GovernanceAuditReader", policy =>
         policy.RequireAuthenticatedUser()
             .RequireRole("ApplicationAdmin"));
@@ -220,12 +251,18 @@ builder.Services.AddSingleton<IGovernanceAuditHistoryStore>(_ =>
 builder.Services.AddSingleton<IGovernanceExceptionStore>(_ =>
     new SqlGovernanceExceptionStore(connectionString));
 builder.Services.AddScoped<IPowerBiDelegatedAccessTokenProvider, PowerBiDelegatedAccessTokenProvider>();
+builder.Services.AddHttpClient<PowerBiOnlineReviewClient>(client =>
+{
+    client.BaseAddress = new Uri("https://api.powerbi.com/v1.0/myorg/");
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
 builder.Services.AddHttpClient<PowerBiGovernanceAuditClient>(client =>
 {
     client.BaseAddress = new Uri("https://api.powerbi.com/v1.0/myorg/");
     client.Timeout = TimeSpan.FromSeconds(60);
 });
 builder.Services.AddSingleton<PbipProjectInputService>();
+builder.Services.AddSingleton<PerformanceAssessmentService>();
 builder.Services.AddSingleton<PbiToolsExtractor>();
 builder.Services.AddSingleton<IReviewRule, ProjectStructureRule>();
 builder.Services.AddSingleton<IReviewRule, TableNamingRule>();
@@ -246,7 +283,14 @@ builder.Services.AddSingleton<IReviewRule, UnusedMeasuresRule>();
 builder.Services.AddSingleton<IReviewFeedbackStore>(_ => new SqlReviewFeedbackStore(connectionString));
 builder.Services.AddSingleton<IReviewSubmissionStore>(_ => new SqlReviewSubmissionStore(connectionString));
 builder.Services.AddSingleton<IReviewHistoryStore>(_ => new SqlReviewHistoryStore(connectionString));
+builder.Services.AddSingleton<IPortalDataStore>(_ => new SqlPortalDataStore(connectionString));
+builder.Services.AddSingleton<IOrganizationHierarchyStore>(_ =>
+    new SqlOrganizationHierarchyStore(connectionString));
+builder.Services.AddSingleton<IAccessRequestStore>(_ =>
+    new SqlAccessRequestStore(connectionString));
+builder.Services.AddSingleton<IAccessRequestEmailSender, SmtpAccessRequestEmailSender>();
 builder.Services.AddHostedService<ReviewHistoryCleanupService>();
+builder.Services.AddHostedService<AccessRequestNotificationService>();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
@@ -309,6 +353,7 @@ app.UseAuthentication();
 if (entraAuthenticationEnabled)
 {
     app.UseMiddleware<ApplicationUserAccessMiddleware>();
+    app.UseMiddleware<WorkspaceScopeMiddleware>();
     app.Use(async (context, next) =>
     {
         var path = context.Request.Path;
@@ -430,12 +475,622 @@ app.MapGet(
             user?.IsAdmin ?? false,
             user?.IsManager ?? false,
             user?.IsLead ?? false,
-            user?.IsBootstrapAdmin ?? false));
+            user?.IsBootstrapAdmin ?? false)
+        {
+            IsOrgLead = user?.IsOrgLead ?? false,
+            IsProjectLead = user?.IsProjectLead ?? false,
+            IsTeamLead = user?.IsTeamLead ?? false,
+            AccessGranted = user?.IsEnabled ?? false
+        });
     })
     .AllowAnonymous()
     .WithTags("Authentication")
     .WithSummary("Get the current BI Sentinel sign-in and application role")
     .Produces<ApplicationAuthSessionResponse>(StatusCodes.Status200OK);
+
+app.MapGet(
+    "/api/workspace/scopes",
+    async (
+        HttpContext httpContext,
+        IOrganizationHierarchyStore hierarchyStore,
+        ApplicationAuthenticationSettings settings,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            var snapshot = await hierarchyStore.GetSnapshotAsync(
+                settings.TenantId,
+                user.UserId,
+                settings.BootstrapAdminObjectId,
+                user.IsAdmin,
+                cancellationToken);
+            return Results.Ok(new WorkspaceScopesResponse(
+                WorkspaceScopeOptionsBuilder.Build(snapshot, user.UserId, user.IsAdmin),
+                user.IsAdmin));
+        }
+        catch (SqlException exception)
+        {
+            logger.LogError(exception, "Loading available workspace scopes failed.");
+            return Results.Problem(
+                title: "Workspace scopes could not be loaded",
+                detail: ApplicationDatabaseError.GetDetail(
+                    exception,
+                    app.Environment,
+                    "Verify that hierarchy migration 019 and its database permissions are applied."),
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationUser"))
+    .WithTags("Workspace")
+    .WithSummary("List the organizations, projects, and teams available to the signed-in user")
+    .Produces<WorkspaceScopesResponse>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapGet(
+    "/api/workspace/context",
+    async (
+        HttpContext httpContext,
+        IOrganizationHierarchyStore hierarchyStore,
+        ApplicationAuthenticationSettings settings,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            var snapshot = await hierarchyStore.GetSnapshotAsync(
+                settings.TenantId,
+                user.UserId,
+                settings.BootstrapAdminObjectId,
+                user.IsAdmin,
+                cancellationToken);
+            return Results.Ok(BuildWorkspaceContext(
+                snapshot,
+                ActiveWorkspaceScope.Get(httpContext),
+                user.IsAdmin));
+        }
+        catch (SqlException exception)
+        {
+            logger.LogError(exception, "Loading active workspace users failed.");
+            return Results.Problem(
+                title: "Workspace users could not be loaded",
+                detail: ApplicationDatabaseError.GetDetail(
+                    exception,
+                    app.Environment,
+                    "Verify that hierarchy migration 019 and its database permissions are applied."),
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationUser"))
+    .WithTags("Workspace")
+    .WithSummary("List users associated with the selected organization, project, or team")
+    .Produces<WorkspaceContextResponse>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapGet(
+    "/api/access-requests/scopes",
+    async (IAccessRequestStore store, CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await store.GetScopesAsync(cancellationToken));
+        }
+        catch (SqlException exception)
+        {
+            app.Logger.LogError(exception, "Loading access-request scopes failed.");
+            return Results.Problem(
+                title: "Access scopes could not be loaded",
+                detail: "Verify database migration 020 and application database permissions.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .WithTags("Access Requests")
+    .WithSummary("List available organization, project, and team access scopes")
+    .Produces<IReadOnlyList<AccessRequestScopeOption>>(StatusCodes.Status200OK);
+
+app.MapGet(
+    "/api/access-requests/mine",
+    async (
+        HttpContext httpContext,
+        IAccessRequestStore store,
+        CancellationToken cancellationToken) =>
+    {
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            return Results.Ok(await store.GetMyRequestsAsync(user.UserId, cancellationToken));
+        }
+        catch (SqlException exception)
+        {
+            app.Logger.LogError(exception, "Loading the user's access requests failed.");
+            return Results.Problem(
+                title: "Your access requests could not be loaded",
+                detail: "Verify database migration 020 and application database permissions.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .WithTags("Access Requests")
+    .WithSummary("List access requests submitted by the signed-in user")
+    .Produces<IReadOnlyList<AccessRequestRecord>>(StatusCodes.Status200OK);
+
+app.MapPost(
+    "/api/access-requests",
+    async (
+        CreateAccessRequestRequest request,
+        HttpContext httpContext,
+        IAccessRequestStore store,
+        ApplicationAuthenticationSettings settings,
+        CancellationToken cancellationToken) =>
+    {
+        if (request.ScopeId == Guid.Empty ||
+            string.IsNullOrWhiteSpace(request.ScopeType) ||
+            string.IsNullOrWhiteSpace(request.RoleName) ||
+            request.Message?.Length > 2000)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["scope"] = request.ScopeId == Guid.Empty ||
+                    string.IsNullOrWhiteSpace(request.ScopeType) ||
+                    string.IsNullOrWhiteSpace(request.RoleName)
+                        ? ["Choose an access scope and role."]
+                        : [],
+                ["message"] = request.Message?.Length > 2000
+                    ? ["The optional message must be 2,000 characters or fewer."]
+                    : []
+            }.Where(pair => pair.Value.Length > 0).ToDictionary(pair => pair.Key, pair => pair.Value));
+        }
+
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            var result = await store.CreateAsync(
+                settings.TenantId,
+                user.UserId,
+                request.ScopeType,
+                request.ScopeId,
+                request.RoleName,
+                request.Message,
+                cancellationToken);
+            return result switch
+            {
+                AccessRequestMutationResult.Updated => Results.Accepted("/api/access-requests/mine", new
+                {
+                    status = "Pending",
+                    detail = "Your request was submitted. A scoped lead will review it."
+                }),
+                AccessRequestMutationResult.Duplicate => Results.Conflict(new
+                {
+                    detail = "A pending request already exists for this scope and role."
+                }),
+                AccessRequestMutationResult.Invalid => Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["roleName"] = ["Choose a valid role for the selected scope."]
+                }),
+                AccessRequestMutationResult.NotFound => Results.NotFound(new
+                {
+                    detail = "The selected organization, project, or team is unavailable."
+                }),
+                _ => Results.Forbid()
+            };
+        }
+        catch (SqlException exception)
+        {
+            app.Logger.LogError(exception, "Submitting a hierarchy access request failed.");
+            return Results.Problem(
+                title: "Access request could not be submitted",
+                detail: "Verify database migration 020 and application database permissions.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .WithTags("Access Requests")
+    .WithSummary("Request access to an organization, project, or team")
+    .Produces(StatusCodes.Status202Accepted)
+    .Produces(StatusCodes.Status409Conflict)
+    .ProducesValidationProblem();
+
+app.MapGet(
+    "/api/access-requests/inbox",
+    async (
+        HttpContext httpContext,
+        IAccessRequestStore store,
+        ApplicationAuthenticationSettings settings,
+        CancellationToken cancellationToken) =>
+    {
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            var accessSettings = await store.GetSettingsAsync(cancellationToken);
+            return Results.Ok(await store.GetInboxAsync(
+                settings.TenantId,
+                user.UserId,
+                user.IsAdmin,
+                accessSettings.EscalationDays,
+                cancellationToken));
+        }
+        catch (SqlException exception)
+        {
+            app.Logger.LogError(exception, "Loading the access-request approval inbox failed.");
+            return Results.Problem(
+                title: "Access request inbox could not be loaded",
+                detail: "Verify database migration 020 and application database permissions.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .RequireAuthorization("HierarchyManager")
+    .WithTags("Access Requests")
+    .WithSummary("List access requests available to the signed-in scoped lead")
+    .Produces<IReadOnlyList<AccessRequestRecord>>(StatusCodes.Status200OK);
+
+app.MapPost(
+    "/api/access-requests/{accessRequestId:guid}/decision",
+    async (
+        Guid accessRequestId,
+        AccessRequestDecision request,
+        HttpContext httpContext,
+        IAccessRequestStore store,
+        ApplicationAuthenticationSettings settings,
+        CancellationToken cancellationToken) =>
+    {
+        if (request.Message?.Length > 2000)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["message"] = ["The optional message must be 2,000 characters or fewer."]
+            });
+        }
+
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            var accessSettings = await store.GetSettingsAsync(cancellationToken);
+            var result = await store.DecideAsync(
+                settings.TenantId,
+                user.UserId,
+                accessRequestId,
+                user.IsAdmin,
+                request.Decision,
+                request.Message,
+                accessSettings.EscalationDays,
+                cancellationToken);
+            return result switch
+            {
+                AccessRequestMutationResult.Updated => Results.Ok(new { accessRequestId, request.Decision }),
+                AccessRequestMutationResult.NotFound => Results.NotFound(),
+                AccessRequestMutationResult.AlreadyResolved => Results.Conflict(new
+                {
+                    detail = "This request has already been resolved."
+                }),
+                AccessRequestMutationResult.Invalid => Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["decision"] = ["Choose Approve or Decline."]
+                }),
+                AccessRequestMutationResult.Forbidden => Results.Forbid(),
+                _ => Results.Problem(
+                    title: "Access request could not be resolved",
+                    statusCode: StatusCodes.Status500InternalServerError)
+            };
+        }
+        catch (SqlException exception)
+        {
+            app.Logger.LogError(exception, "Resolving access request {AccessRequestId} failed.", accessRequestId);
+            return Results.Problem(
+                title: "Access request could not be resolved",
+                detail: "Verify database migration 020 and application database permissions.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .RequireAuthorization("HierarchyManager")
+    .WithTags("Access Requests")
+    .WithSummary("Approve or decline a scoped access request")
+    .Produces(StatusCodes.Status200OK)
+    .Produces(StatusCodes.Status403Forbidden)
+    .Produces(StatusCodes.Status404NotFound)
+    .Produces(StatusCodes.Status409Conflict)
+    .ProducesValidationProblem();
+
+app.MapGet(
+    "/api/admin/access-requests/settings",
+    async (IAccessRequestStore store, CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await store.GetSettingsAsync(cancellationToken));
+        }
+        catch (SqlException exception)
+        {
+            app.Logger.LogError(exception, "Loading access-request escalation settings failed.");
+            return Results.Problem(
+                title: "Access request settings could not be loaded",
+                detail: "Verify database migration 020 and application database permissions.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .RequireAuthorization("ApplicationAdmin")
+    .WithTags("Administration")
+    .WithSummary("Get the access-request escalation interval")
+    .Produces<AccessRequestSettings>(StatusCodes.Status200OK);
+
+app.MapPut(
+    "/api/admin/access-requests/settings",
+    async (
+        UpdateAccessRequestSettingsRequest request,
+        HttpContext httpContext,
+        IAccessRequestStore store,
+        CancellationToken cancellationToken) =>
+    {
+        if (request.EscalationDays is < 1 or > 30)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [nameof(request.EscalationDays)] = ["Choose an escalation interval from 1 to 30 days."]
+            });
+        }
+
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            await store.SetSettingsAsync(user.UserId, request.EscalationDays, cancellationToken);
+            return Results.Ok(new AccessRequestSettings(request.EscalationDays));
+        }
+        catch (SqlException exception)
+        {
+            app.Logger.LogError(exception, "Saving access-request escalation settings failed.");
+            return Results.Problem(
+                title: "Access request settings could not be saved",
+                detail: "Verify database migration 020 and application database permissions.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .RequireAuthorization("ApplicationAdmin")
+    .WithTags("Administration")
+    .WithSummary("Set the access-request escalation interval")
+    .Produces<AccessRequestSettings>(StatusCodes.Status200OK)
+    .ProducesValidationProblem();
+
+app.MapGet(
+    "/api/dashboard/summary",
+    async (
+        HttpContext httpContext,
+        IPortalDataStore portalStore,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            return Results.Ok(await portalStore.GetDashboardSummaryAsync(
+                user.UserId,
+                user.IsAdmin,
+                ActiveWorkspaceScope.Get(httpContext),
+                cancellationToken));
+        }
+        catch (SqlException exception)
+        {
+            logger.LogError(exception, "Loading the portal dashboard summary failed.");
+            return Results.Problem(
+                title: "Dashboard summary could not be loaded",
+                detail: ApplicationDatabaseError.GetDetail(
+                    exception,
+                    app.Environment,
+                    "Verify that the review-history, application-access, governance, review-submission, and support database scripts are applied and the application has the required permissions."),
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationUser"))
+    .WithTags("Portal")
+    .WithSummary("Get dashboard counts for the active organization, project, or team")
+    .Produces<PortalDashboardSummary>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapGet(
+    "/api/support/requests",
+    async (
+        HttpContext httpContext,
+        IPortalDataStore portalStore,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            return Results.Ok(await portalStore.GetSupportRequestsAsync(
+                user.UserId,
+                user.IsAdmin,
+                ActiveWorkspaceScope.Get(httpContext),
+                cancellationToken));
+        }
+        catch (SqlException exception)
+        {
+            logger.LogError(exception, "Loading BI Sentinel support requests failed.");
+            return Results.Problem(
+                title: "Support requests could not be loaded",
+                detail: ApplicationDatabaseError.GetDetail(
+                    exception,
+                    app.Environment,
+                    "Verify that the support-request database script is applied and the application has the required permissions."),
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationUser"))
+    .WithTags("Support")
+    .WithSummary("List the current user's support requests or the administrator queue")
+    .Produces<IReadOnlyList<SupportRequestRecord>>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapPost(
+    "/api/support/requests",
+    async (
+        CreateSupportRequest request,
+        HttpContext httpContext,
+        IPortalDataStore portalStore,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        var category = request.Category?.Trim();
+        var subject = request.Subject?.Trim();
+        var message = request.Message?.Trim();
+        if (category is not ("Technical issue" or "Access request" or "Feature request" or "Other") ||
+            string.IsNullOrWhiteSpace(subject) || subject.Length > 200 ||
+            string.IsNullOrWhiteSpace(message) || message.Length > 4000)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["category"] = category is not ("Technical issue" or "Access request" or "Feature request" or "Other")
+                    ? ["Choose a valid support category."]
+                    : [],
+                ["subject"] = string.IsNullOrWhiteSpace(subject) || subject.Length > 200
+                    ? ["Enter a subject between 1 and 200 characters."]
+                    : [],
+                ["message"] = string.IsNullOrWhiteSpace(message) || message.Length > 4000
+                    ? ["Enter a message between 1 and 4,000 characters."]
+                    : []
+            }.Where(pair => pair.Value.Length > 0)
+                .ToDictionary(pair => pair.Key, pair => pair.Value));
+        }
+
+        try
+        {
+            var supportRequestId = await portalStore.CreateSupportRequestAsync(
+                user.UserId,
+                new CreateSupportRequest(category, subject, message),
+                ActiveWorkspaceScope.Get(httpContext),
+                cancellationToken);
+            return Results.Ok(new { supportRequestId });
+        }
+        catch (SqlException exception)
+        {
+            logger.LogError(exception, "Creating a BI Sentinel support request failed.");
+            return Results.Problem(
+                title: "Support request could not be sent",
+                detail: ApplicationDatabaseError.GetDetail(
+                    exception,
+                    app.Environment,
+                    "Verify that the support-request database script is applied and the application has the required permissions."),
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationUser"))
+    .WithTags("Support")
+    .WithSummary("Create a support request")
+    .Produces(StatusCodes.Status200OK)
+    .ProducesValidationProblem()
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapPost(
+    "/api/support/requests/{supportRequestId:guid}/response",
+    async (
+        Guid supportRequestId,
+        RespondToSupportRequest request,
+        HttpContext httpContext,
+        IPortalDataStore portalStore,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        var response = request.Response?.Trim();
+        var status = request.Status?.Trim();
+        if (string.IsNullOrWhiteSpace(response) || response.Length > 4000 ||
+            status is not ("Open" or "In progress" or "Resolved"))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["response"] = string.IsNullOrWhiteSpace(response) || response.Length > 4000
+                    ? ["Enter an administrator response between 1 and 4,000 characters."]
+                    : [],
+                ["status"] = status is not ("Open" or "In progress" or "Resolved")
+                    ? ["Choose Open, In progress, or Resolved."]
+                    : []
+            }.Where(pair => pair.Value.Length > 0)
+                .ToDictionary(pair => pair.Key, pair => pair.Value));
+        }
+
+        try
+        {
+            var updated = await portalStore.RespondToSupportRequestAsync(
+                supportRequestId,
+                user.UserId,
+                new RespondToSupportRequest(response, status),
+                ActiveWorkspaceScope.Get(httpContext),
+                cancellationToken);
+            return updated is null ? Results.NotFound() : Results.Ok(updated);
+        }
+        catch (SqlException exception)
+        {
+            logger.LogError(exception, "Responding to BI Sentinel support request {SupportRequestId} failed.", supportRequestId);
+            return Results.Problem(
+                title: "Support request response could not be saved",
+                detail: ApplicationDatabaseError.GetDetail(
+                    exception,
+                    app.Environment,
+                    "Verify that the support-request database script is applied and the application has the required permissions."),
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+    })
+    .RequireAuthorization("ApplicationAdmin")
+    .WithTags("Support")
+    .WithSummary("Respond to a support request and update its status")
+    .Produces<SupportRequestRecord>(StatusCodes.Status200OK)
+    .Produces(StatusCodes.Status404NotFound)
+    .ProducesValidationProblem()
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 if (entraAuthenticationEnabled)
 {
@@ -651,6 +1306,270 @@ if (entraAuthenticationEnabled)
         .Produces(StatusCodes.Status404NotFound)
         .ProducesValidationProblem()
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+    app.MapGet(
+        "/api/admin/hierarchy",
+        async (
+            HttpContext httpContext,
+            IOrganizationHierarchyStore hierarchyStore,
+            ApplicationAuthenticationSettings settings,
+            CancellationToken cancellationToken) =>
+        {
+            var actor = ApplicationUserContext.Get(httpContext);
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            try
+            {
+                return Results.Ok(await hierarchyStore.GetSnapshotAsync(
+                    settings.TenantId,
+                    actor.UserId,
+                    settings.BootstrapAdminObjectId,
+                    actor.IsAdmin,
+                    cancellationToken));
+            }
+            catch (SqlException exception)
+            {
+                app.Logger.LogError(exception, "Loading organization hierarchy settings failed.");
+                return Results.Problem(
+                    title: "Organization settings could not be loaded",
+                    detail: "Apply database migration 019 and verify application database permissions.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        })
+        .RequireAuthorization("HierarchyManager")
+        .WithTags("Administration")
+        .WithSummary("List organizations, projects, teams, users, and scoped access")
+        .Produces<OrganizationHierarchySnapshot>(StatusCodes.Status200OK);
+
+    app.MapPost(
+        "/api/admin/hierarchy/organizations",
+        async (
+            CreateOrganizationRequest request,
+            HttpContext httpContext,
+            IOrganizationHierarchyStore hierarchyStore,
+            ApplicationAuthenticationSettings settings,
+            CancellationToken cancellationToken) =>
+        {
+            var name = request.Name?.Trim();
+            if (string.IsNullOrWhiteSpace(name) || name.Length > 200)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    [nameof(request.Name)] = ["Enter an organization name between 1 and 200 characters."]
+                });
+            }
+
+            var actor = ApplicationUserContext.Get(httpContext);
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            try
+            {
+                var (result, id) = await hierarchyStore.CreateOrganizationAsync(
+                    settings.TenantId, actor.UserId, name, actor.IsAdmin, cancellationToken);
+                return result switch
+                {
+                    HierarchyMutationResult.Forbidden => Results.Forbid(),
+                    HierarchyMutationResult.Conflict => Results.Conflict(new { detail = "An organization with that name already exists." }),
+                    HierarchyMutationResult.Updated => Results.Ok(new { organizationId = id, name }),
+                    _ => Results.NotFound()
+                };
+            }
+            catch (SqlException exception)
+            {
+                app.Logger.LogError(exception, "Creating organization failed.");
+                return Results.Problem(
+                    title: "Organization could not be created",
+                    detail: "Verify database migration 019 and application database permissions.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        })
+        .RequireAuthorization("HierarchyManager")
+        .WithTags("Administration")
+        .WithSummary("Create an organization (root administrator only)")
+        .Produces(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status403Forbidden)
+        .Produces(StatusCodes.Status409Conflict)
+        .ProducesValidationProblem();
+
+    app.MapPost(
+        "/api/admin/hierarchy/projects",
+        async (
+            CreateProjectRequest request,
+            HttpContext httpContext,
+            IOrganizationHierarchyStore hierarchyStore,
+            ApplicationAuthenticationSettings settings,
+            CancellationToken cancellationToken) =>
+        {
+            var name = request.Name?.Trim();
+            if (request.OrganizationId == Guid.Empty || string.IsNullOrWhiteSpace(name) || name.Length > 200)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["organizationId"] = request.OrganizationId == Guid.Empty ? ["Choose an organization."] : [],
+                    [nameof(request.Name)] = string.IsNullOrWhiteSpace(name) || name.Length > 200
+                        ? ["Enter a project name between 1 and 200 characters."]
+                        : []
+                }.Where(pair => pair.Value.Length > 0).ToDictionary(pair => pair.Key, pair => pair.Value));
+            }
+
+            var actor = ApplicationUserContext.Get(httpContext);
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            try
+            {
+                var (result, id) = await hierarchyStore.CreateProjectAsync(
+                    settings.TenantId, actor.UserId, request.OrganizationId, name, actor.IsAdmin, cancellationToken);
+                return result switch
+                {
+                    HierarchyMutationResult.Forbidden => Results.Forbid(),
+                    HierarchyMutationResult.Conflict => Results.Conflict(new { detail = "A project with that name already exists in this organization." }),
+                    HierarchyMutationResult.Updated => Results.Ok(new { projectId = id, organizationId = request.OrganizationId, name }),
+                    _ => Results.NotFound()
+                };
+            }
+            catch (SqlException exception)
+            {
+                app.Logger.LogError(exception, "Creating project failed.");
+                return Results.Problem(
+                    title: "Project could not be created",
+                    detail: "Verify database migration 019 and application database permissions.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        })
+        .RequireAuthorization("HierarchyManager")
+        .WithTags("Administration")
+        .WithSummary("Create a project under an organization")
+        .Produces(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status403Forbidden)
+        .Produces(StatusCodes.Status404NotFound)
+        .Produces(StatusCodes.Status409Conflict)
+        .ProducesValidationProblem();
+
+    app.MapPost(
+        "/api/admin/hierarchy/teams",
+        async (
+            CreateTeamRequest request,
+            HttpContext httpContext,
+            IOrganizationHierarchyStore hierarchyStore,
+            ApplicationAuthenticationSettings settings,
+            CancellationToken cancellationToken) =>
+        {
+            var name = request.Name?.Trim();
+            if (request.ProjectId == Guid.Empty || string.IsNullOrWhiteSpace(name) || name.Length > 200)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["projectId"] = request.ProjectId == Guid.Empty ? ["Choose a project."] : [],
+                    [nameof(request.Name)] = string.IsNullOrWhiteSpace(name) || name.Length > 200
+                        ? ["Enter a team name between 1 and 200 characters."]
+                        : []
+                }.Where(pair => pair.Value.Length > 0).ToDictionary(pair => pair.Key, pair => pair.Value));
+            }
+
+            var actor = ApplicationUserContext.Get(httpContext);
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            try
+            {
+                var (result, id) = await hierarchyStore.CreateTeamAsync(
+                    settings.TenantId, actor.UserId, request.ProjectId, name, actor.IsAdmin, cancellationToken);
+                return result switch
+                {
+                    HierarchyMutationResult.Forbidden => Results.Forbid(),
+                    HierarchyMutationResult.Conflict => Results.Conflict(new { detail = "A team with that name already exists in this project." }),
+                    HierarchyMutationResult.Updated => Results.Ok(new { teamId = id, projectId = request.ProjectId, name }),
+                    _ => Results.NotFound()
+                };
+            }
+            catch (SqlException exception)
+            {
+                app.Logger.LogError(exception, "Creating team failed.");
+                return Results.Problem(
+                    title: "Team could not be created",
+                    detail: "Verify database migration 019 and application database permissions.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        })
+        .RequireAuthorization("HierarchyManager")
+        .WithTags("Administration")
+        .WithSummary("Create a team under a project")
+        .Produces(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status403Forbidden)
+        .Produces(StatusCodes.Status404NotFound)
+        .Produces(StatusCodes.Status409Conflict)
+        .ProducesValidationProblem();
+
+    app.MapPut(
+        "/api/admin/hierarchy/assignments",
+        async (
+            SetUserScopeAssignmentRequest request,
+            HttpContext httpContext,
+            IOrganizationHierarchyStore hierarchyStore,
+            ApplicationAuthenticationSettings settings,
+            CancellationToken cancellationToken) =>
+        {
+            if (request.UserId == Guid.Empty || request.ScopeId == Guid.Empty)
+            {
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["userId"] = request.UserId == Guid.Empty ? ["Choose a user."] : [],
+                    ["scopeId"] = request.ScopeId == Guid.Empty ? ["Choose a scope."] : []
+                }.Where(pair => pair.Value.Length > 0).ToDictionary(pair => pair.Key, pair => pair.Value));
+            }
+
+            var actor = ApplicationUserContext.Get(httpContext);
+            if (actor is null)
+            {
+                return Results.Unauthorized();
+            }
+
+            try
+            {
+                var result = await hierarchyStore.SetAssignmentAsync(
+                    settings.TenantId,
+                    actor.UserId,
+                    request.UserId,
+                    request.ScopeType,
+                    request.ScopeId,
+                    request.RoleName,
+                    request.IsAssigned,
+                    actor.IsAdmin,
+                    cancellationToken);
+                return result switch
+                {
+                    HierarchyMutationResult.Forbidden => Results.Forbid(),
+                    HierarchyMutationResult.NotFound => Results.NotFound(),
+                    _ => Results.Ok(new { request.UserId, request.ScopeType, request.ScopeId, request.RoleName, request.IsAssigned })
+                };
+            }
+            catch (SqlException exception)
+            {
+                app.Logger.LogError(exception, "Changing hierarchy role assignment failed.");
+                return Results.Problem(
+                    title: "User access could not be changed",
+                    detail: "Verify database migration 019 and application database permissions.",
+                    statusCode: StatusCodes.Status503ServiceUnavailable);
+            }
+        })
+        .RequireAuthorization("HierarchyManager")
+        .WithTags("Administration")
+        .WithSummary("Assign or remove a scoped lead or read-only role")
+        .Produces(StatusCodes.Status200OK)
+        .Produces(StatusCodes.Status403Forbidden)
+        .Produces(StatusCodes.Status404NotFound)
+        .ProducesValidationProblem();
 
 }
 else
@@ -1577,7 +2496,8 @@ app.MapPost(
                 reviewHistoryRetentionDays,
                 user.UserId,
                 logger,
-                cancellationToken);
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext));
         }
         catch (SqlException exception)
         {
@@ -1619,6 +2539,212 @@ app.MapPost(
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 app.MapGet(
+    "/api/reviews/online/signin",
+    () =>
+    {
+        var properties = new AuthenticationProperties { RedirectUri = "/reviews?source=online" };
+        properties.Items["PowerBiProjectReviewConsent"] = "true";
+        return Results.Challenge(properties, [OpenIdConnectDefaults.AuthenticationScheme]);
+    })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationUser"))
+    .WithTags("Project Review")
+    .WithSummary("Authorize delegated read access for online Project Review");
+
+app.MapGet(
+    "/api/reviews/online/workspaces",
+    async (
+        PowerBiOnlineReviewClient onlineReviewClient,
+        HttpContext httpContext,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            return Results.Ok(await onlineReviewClient.DiscoverWorkspacesAsync(
+                httpContext.User,
+                cancellationToken));
+        }
+        catch (PowerBiOnlineReviewException exception)
+        {
+            logger.LogWarning(exception, "Discovering the signed-in user's Power BI workspaces failed.");
+            return Results.Problem(
+                title: "Power BI workspaces could not be loaded",
+                detail: exception.Message,
+                statusCode: exception.RequiresConsent
+                    ? StatusCodes.Status409Conflict
+                    : (int)exception.StatusCode);
+        }
+    })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationUser"))
+    .WithTags("Project Review")
+    .WithSummary("List workspaces accessible to the signed-in Power BI user")
+    .Produces<IReadOnlyList<PowerBiReviewWorkspace>>(StatusCodes.Status200OK);
+
+app.MapPost(
+    "/api/reviews/online/scan",
+    async (
+        PowerBiOnlineReviewRequest request,
+        PowerBiOnlineReviewClient onlineReviewClient,
+        IPbipProjectReviewer reviewer,
+        IReviewHistoryStore historyStore,
+        HttpContext httpContext,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        if (request.WorkspaceId == Guid.Empty)
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [nameof(request.WorkspaceId)] = ["Choose a valid Power BI workspace."]
+            });
+        }
+
+        var user = ApplicationUserContext.Get(httpContext);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        try
+        {
+            var scan = await onlineReviewClient.ScanWorkspaceAsync(
+                request.WorkspaceId,
+                httpContext.User,
+                cancellationToken);
+            var unavailableEvidenceRules = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "measure-table-name",
+                "measure-naming",
+                "required-measures",
+                "explicit-measures",
+                "dax-division",
+                "dax-format",
+                "unused-tables",
+                "unused-columns",
+                "unused-measures"
+            };
+            var projectId = $"online-{request.WorkspaceId:N}";
+            var review = await reviewer.ReviewOnlineModelAsync(
+                scan.Project,
+                projectId,
+                unavailableEvidenceRules,
+                cancellationToken);
+            review = review with
+            {
+                Findings = review.Findings.Concat(scan.EvidenceLimitations.Select(limitation =>
+                    new PbipReviewFinding(
+                        "ONLINE-EVIDENCE-001",
+                        "Information",
+                        limitation,
+                        scan.Project.ProjectName,
+                        "Use a PBIP/PBIR project upload for DAX, measures, report definitions, and full semantic-model metadata.")).ToArray())
+                    .ToArray()
+            };
+
+            var entry = await historyStore.SaveAsync(
+                review,
+                reviewHistoryRetentionDays,
+                user.UserId,
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext));
+            return Results.Ok(new SavePowerBiOnlineReviewResponse(
+                entry.Summary.ReviewRunId,
+                entry.Summary.ReviewedUtc,
+                entry.Summary.ExpiresUtc,
+                review with { ProjectName = entry.Summary.ProjectName },
+                entry.Findings,
+                new PowerBiOnlineReviewEvidence(
+                    scan.Project.ProjectName,
+                    scan.ReportCount,
+                    scan.SemanticModelCount,
+                    scan.SchemaAvailableModelCount,
+                    scan.EvidenceLimitations.ToArray())));
+        }
+        catch (PowerBiOnlineReviewException exception)
+        {
+            logger.LogWarning(
+                exception,
+                "Online Power BI project review failed for workspace {WorkspaceId}.",
+                request.WorkspaceId);
+            return Results.Problem(
+                title: "Online Project Review could not be completed",
+                detail: exception.Message,
+                statusCode: exception.RequiresConsent
+                    ? StatusCodes.Status409Conflict
+                    : (int)exception.StatusCode);
+        }
+        catch (SqlException exception)
+        {
+            logger.LogError(exception, "Saving an online Power BI Project Review failed.");
+            return Results.Problem(
+                title: "Online review completed but could not be saved",
+                detail: "Verify the review-history migration and application database permissions.",
+                statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (System.Text.RegularExpressions.RegexMatchTimeoutException exception)
+        {
+            logger.LogWarning(exception, "A configured review regular expression exceeded its time limit.");
+            return Results.Problem(
+                title: "Review configuration requires adjustment",
+                detail: "A configured naming pattern took too long to evaluate. Adjust it in Administration and retry.",
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+    })
+    .RequireAuthorization(policy => policy.RequireRole("ApplicationUser"))
+    .WithTags("Project Review")
+    .WithSummary("Review metadata from one accessible Power BI workspace")
+    .WithDescription("Reads workspace, report, semantic-model, and available table/relationship metadata using the signed-in user's delegated Power BI access. DAX, report visuals, and unsupported model schemas remain explicit evidence gaps.")
+    .Produces<SavePowerBiOnlineReviewResponse>(StatusCodes.Status200OK)
+    .ProducesValidationProblem()
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status409Conflict)
+    .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+
+app.MapPost(
+    "/api/performance-optimization/assess",
+    async (
+        IFormFile file,
+        PbipProjectInputService projectInput,
+        PerformanceAssessmentService assessmentService,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            var assessment = await projectInput.ProcessArtifactAsync(
+                file,
+                allowLooseArtifacts: true,
+                (projectPath, projectName, token) => Task.FromResult(
+                    assessmentService.Assess(
+                        projectPath,
+                        projectName,
+                        Path.GetExtension(file.FileName))),
+                cancellationToken);
+            return Results.Ok(assessment);
+        }
+        catch (InvalidDataException exception)
+        {
+            logger.LogWarning(exception, "Uploaded Power BI artifact could not be assessed.");
+            return Results.Problem(
+                title: "Uploaded Power BI artifact is invalid or unsupported",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+    })
+    .WithTags("Performance Optimization")
+    .WithSummary("Generate a read-only static performance assessment")
+    .WithDescription("Accepts PBIT, a PBIP/PBIR project ZIP, Model.bim, a TMDL definition or TMDL ZIP, or DAX. Results separate static observations and hypotheses from unavailable runtime telemetry; no Power BI content is changed.")
+    .WithMetadata(new RequestSizeLimitAttribute(MaximumUploadRequestBytes))
+    .WithMetadata(new RequestFormLimitsAttribute
+    {
+        MultipartBodyLengthLimit = MaximumUploadRequestBytes
+    })
+    .DisableAntiforgery()
+    .Produces<PerformanceAssessment>(StatusCodes.Status200OK)
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status413PayloadTooLarge);
+
+app.MapGet(
     "/api/reviews/history",
     async (
         int? limit,
@@ -1658,7 +2784,8 @@ app.MapGet(
                 resultLimit,
                 searchName,
                 user.IsAdmin || user.IsManager || user.IsLead ? null : user.UserId,
-                cancellationToken));
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext)));
         }
         catch (SqlException exception)
         {
@@ -1696,7 +2823,8 @@ app.MapGet(
             var entry = await historyStore.GetAsync(
                 reviewRunId,
                 user.IsAdmin || user.IsManager || user.IsLead ? null : user.UserId,
-                cancellationToken);
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext));
             return entry is null ? Results.NotFound() : Results.Ok(entry);
         }
         catch (SqlException exception)
@@ -1735,7 +2863,8 @@ app.MapGet(
             return Results.Ok(await submissionStore.GetMineAsync(
                 reviewRunId,
                 user.UserId,
-                cancellationToken));
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext)));
         }
         catch (SqlException exception)
         {
@@ -1779,7 +2908,8 @@ app.MapPost(
                 reviewRunId,
                 user.UserId,
                 request.Findings,
-                cancellationToken);
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext));
             return submission is null
                 ? Results.Conflict(new
                 {
@@ -1820,7 +2950,10 @@ app.MapGet(
 
         try
         {
-            return Results.Ok(await submissionStore.GetMyQueueAsync(user.UserId, cancellationToken));
+            return Results.Ok(await submissionStore.GetMyQueueAsync(
+                user.UserId,
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext)));
         }
         catch (SqlException exception)
         {
@@ -1840,6 +2973,7 @@ app.MapGet(
     "/api/reviews/submissions",
     async (
         bool? includeReviewed,
+        HttpContext httpContext,
         IReviewSubmissionStore submissionStore,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
@@ -1848,7 +2982,8 @@ app.MapGet(
         {
             return Results.Ok(await submissionStore.GetQueueAsync(
                 includeReviewed == true,
-                cancellationToken));
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext)));
         }
         catch (SqlException exception)
         {
@@ -1869,13 +3004,17 @@ app.MapGet(
     "/api/reviews/submissions/{submissionId:guid}",
     async (
         Guid submissionId,
+        HttpContext httpContext,
         IReviewSubmissionStore submissionStore,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
     {
         try
         {
-            var submission = await submissionStore.GetAsync(submissionId, cancellationToken);
+            var submission = await submissionStore.GetAsync(
+                submissionId,
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext));
             return submission is null ? Results.NotFound() : Results.Ok(submission);
         }
         catch (SqlException exception)
@@ -1922,7 +3061,8 @@ app.MapPost(
                 submissionId,
                 user.UserId,
                 request.Findings,
-                cancellationToken);
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext));
             return submission is null
                 ? Results.Conflict(new
                 {
@@ -1952,6 +3092,7 @@ app.MapPost(
     "/api/reviews/feedback",
     async (
         SaveReviewFeedbackRequest request,
+        HttpContext httpContext,
         IReviewFeedbackStore feedbackStore,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
@@ -1972,7 +3113,10 @@ app.MapPost(
 
         try
         {
-            var savedUtc = await feedbackStore.SaveAsync(request, cancellationToken);
+            var savedUtc = await feedbackStore.SaveAsync(
+                request,
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext));
             if (savedUtc is null)
             {
                 return Results.NotFound(new
@@ -2007,6 +3151,7 @@ app.MapPost(
     async (
         Guid reviewRunId,
         ReopenReviewFeedbackRequest request,
+        HttpContext httpContext,
         IReviewFeedbackStore feedbackStore,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
@@ -2032,7 +3177,8 @@ app.MapPost(
             var updatedUtc = await feedbackStore.ReopenRunAsync(
                 request.ReviewerId,
                 reviewRunId,
-                cancellationToken);
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext));
             return updatedUtc is null
                 ? Results.NotFound(new
                 {
@@ -2064,6 +3210,7 @@ app.MapPost(
     async (
         Guid reviewFindingId,
         ReopenReviewFeedbackRequest request,
+        HttpContext httpContext,
         IReviewFeedbackStore feedbackStore,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
@@ -2089,7 +3236,8 @@ app.MapPost(
             var updatedUtc = await feedbackStore.ReopenAsync(
                 request.ReviewerId,
                 reviewFindingId,
-                cancellationToken);
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext));
             return updatedUtc is null
                 ? Results.NotFound(new
                 {
@@ -2121,6 +3269,7 @@ app.MapGet(
     async (
         Guid reviewRunId,
         Guid reviewerId,
+        HttpContext httpContext,
         IReviewFeedbackStore feedbackStore,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
@@ -2146,7 +3295,8 @@ app.MapGet(
             return Results.Ok(await feedbackStore.GetForRunAsync(
                 reviewerId,
                 reviewRunId,
-                cancellationToken));
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext)));
         }
         catch (SqlException exception)
         {
@@ -2169,6 +3319,7 @@ app.MapGet(
     "/api/reviews/feedback",
     async (
         int? limit,
+        HttpContext httpContext,
         IReviewFeedbackStore feedbackStore,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
@@ -2192,7 +3343,10 @@ app.MapGet(
 
         try
         {
-            return Results.Ok(await feedbackStore.GetRecentAsync(resultLimit, cancellationToken));
+            return Results.Ok(await feedbackStore.GetRecentAsync(
+                resultLimit,
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext)));
         }
         catch (SqlException exception)
         {
@@ -2216,6 +3370,7 @@ app.MapGet(
     async (
         Guid reviewerId,
         int? limit,
+        HttpContext httpContext,
         IReviewFeedbackStore feedbackStore,
         ILogger<Program> logger,
         CancellationToken cancellationToken) =>
@@ -2250,7 +3405,8 @@ app.MapGet(
             return Results.Ok(await feedbackStore.GetDashboardAsync(
                 reviewerId,
                 resultLimit,
-                cancellationToken));
+                cancellationToken,
+                ActiveWorkspaceScope.Get(httpContext)));
         }
         catch (SqlException exception)
         {
@@ -2269,8 +3425,101 @@ app.MapGet(
     .ProducesValidationProblem()
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
+app.MapFallback(
+    "/api/{**path}",
+    () => Results.Problem(
+        title: "API endpoint not found",
+        detail: "This BI Sentinel deployment may not include the requested API. Publish and restart the API before using this page.",
+        statusCode: StatusCodes.Status404NotFound));
 app.MapFallbackToFile("index.html");
 app.Run();
+
+static WorkspaceContextResponse BuildWorkspaceContext(
+    OrganizationHierarchySnapshot snapshot,
+    ActiveWorkspaceScope? activeScope,
+    bool isRootAdmin)
+{
+    var scopeOptions = WorkspaceScopeOptionsBuilder.Build(snapshot, Guid.Empty, isRootAdmin: true);
+    var activeScopeOption = activeScope is null
+        ? null
+        : scopeOptions.FirstOrDefault(option =>
+            option.ScopeType == activeScope.ScopeType && option.ScopeId == activeScope.ScopeId);
+    if (activeScope is not null && activeScopeOption is null)
+    {
+        return new WorkspaceContextResponse(activeScope, null, []);
+    }
+
+    var includedScopeIds = new HashSet<Guid>();
+    if (activeScopeOption is not null)
+    {
+        includedScopeIds.Add(activeScope!.ScopeId);
+        if (activeScope.ScopeType == "Organization")
+        {
+            var projectIds = snapshot.Projects
+                .Where(project => project.OrganizationId == activeScope.ScopeId)
+                .Select(project => project.ProjectId)
+                .ToHashSet();
+            includedScopeIds.UnionWith(projectIds);
+            includedScopeIds.UnionWith(snapshot.Teams
+                .Where(team => projectIds.Contains(team.ProjectId))
+                .Select(team => team.TeamId));
+        }
+        else if (activeScope.ScopeType == "Project")
+        {
+            var project = snapshot.Projects.FirstOrDefault(item => item.ProjectId == activeScope.ScopeId);
+            if (project is not null)
+            {
+                includedScopeIds.Add(project.OrganizationId);
+            }
+            includedScopeIds.UnionWith(snapshot.Teams
+                .Where(team => team.ProjectId == activeScope.ScopeId)
+                .Select(team => team.TeamId));
+        }
+        else
+        {
+            var team = snapshot.Teams.FirstOrDefault(item => item.TeamId == activeScope.ScopeId);
+            var project = team is null
+                ? null
+                : snapshot.Projects.FirstOrDefault(item => item.ProjectId == team.ProjectId);
+            if (project is not null)
+            {
+                includedScopeIds.Add(project.ProjectId);
+                includedScopeIds.Add(project.OrganizationId);
+            }
+        }
+    }
+
+    var rolesByUser = snapshot.Assignments
+        .Where(assignment => includedScopeIds.Contains(assignment.ScopeId))
+        .GroupBy(assignment => assignment.UserId)
+        .ToDictionary(
+            group => group.Key,
+            group => (IReadOnlyList<string>)group
+                .Select(assignment => assignment.RoleName)
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal)
+                .ToArray());
+    var members = snapshot.Users
+        .Where(user => activeScope is null
+            ? isRootAdmin
+            : rolesByUser.ContainsKey(user.UserId) || user.IsAdmin)
+        .Select(user =>
+        {
+            var roles = rolesByUser.GetValueOrDefault(user.UserId, []);
+            var visibleRoles = new HashSet<string>(roles, StringComparer.Ordinal);
+            if (user.IsAdmin) visibleRoles.Add("ApplicationAdmin");
+            if (user.IsManager) visibleRoles.Add("ReviewManager");
+            if (user.IsLead) visibleRoles.Add("ReviewLead");
+            return new WorkspaceMemberSummary(
+                user.UserId,
+                user.DisplayName,
+                user.EmailAddress,
+                visibleRoles.Order(StringComparer.Ordinal).ToArray());
+        })
+        .OrderBy(user => user.DisplayName, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+    return new WorkspaceContextResponse(activeScope, activeScopeOption?.Label, members);
+}
 
 static string NormalizeLocalReturnUrl(string? returnUrl)
 {
@@ -2316,13 +3565,13 @@ static async Task<IResult> CreateSignInPageAsync(
         .Replace("{{SIGN_IN_URL}}", signInUrl, StringComparison.Ordinal)
         .Replace(
             "{{SIGN_IN_HEADING}}",
-            signedOut ? "You’re signed out" : "Welcome to your BI workspace",
+            signedOut ? "You’re signed out" : "Request BI Sentinel access",
             StringComparison.Ordinal)
         .Replace(
             "{{SIGN_IN_MESSAGE}}",
             signedOut
                 ? "Your BI Sentinel session has ended. Sign in with your organization account to continue."
-                : "Sign in securely with your organization account to review and govern your Power BI environment.",
+                : "Sign in with Microsoft to request access to an organization, project, or team. A BI Sentinel lead must approve your request before you can enter the workspace.",
             StringComparison.Ordinal);
     return Results.Content(page, "text/html; charset=utf-8");
 }
@@ -2353,7 +3602,8 @@ static async Task<IResult> SaveReviewAsync(
     int retentionDays,
     Guid uploadedByUserId,
     ILogger<Program> logger,
-    CancellationToken cancellationToken)
+    CancellationToken cancellationToken,
+    ActiveWorkspaceScope? scope)
 {
     try
     {
@@ -2361,7 +3611,8 @@ static async Task<IResult> SaveReviewAsync(
             review,
             retentionDays,
             uploadedByUserId,
-            cancellationToken);
+            cancellationToken,
+            scope);
         return Results.Ok(new SaveReviewHistoryResponse(
             entry.Summary.ReviewRunId,
             entry.Summary.ReviewedUtc,

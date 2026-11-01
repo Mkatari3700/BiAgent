@@ -1,5 +1,6 @@
 using System.Data;
 using Microsoft.Data.SqlClient;
+using BISentinel.Api.Security;
 
 namespace BISentinel.Api.Feedback;
 
@@ -9,7 +10,8 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
         Guid reviewRunId,
         Guid submittedByUserId,
         IReadOnlyList<SubmitReviewFindingRequest> findings,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -22,6 +24,7 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
             transaction,
             reviewRunId,
             submittedByUserId,
+            scope,
             cancellationToken);
         if (expectedFindingIds is null || !expectedFindingIds.SetEquals(findings.Select(item => item.ReviewFindingId)))
         {
@@ -73,32 +76,35 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
         }
 
         await transaction.CommitAsync(cancellationToken);
-        return await GetAsync(submissionId, cancellationToken);
+        return await GetAsync(submissionId, cancellationToken, scope);
     }
 
     public async Task<ReviewSubmission?> GetMineAsync(
         Guid reviewRunId,
         Guid submittedByUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null)
     {
         var submissionId = await GetSubmissionIdAsync(
             "WHERE submission.ReviewRunId = @Id AND submission.SubmittedByUserId = @UserId",
             reviewRunId,
             submittedByUserId,
+            scope,
             cancellationToken);
-        return submissionId is null ? null : await GetAsync(submissionId.Value, cancellationToken);
+        return submissionId is null ? null : await GetAsync(submissionId.Value, cancellationToken, scope);
     }
 
     public async Task<ReviewSubmission?> GetAsync(
         Guid submissionId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null)
     {
         ReviewSubmission? submission = null;
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using (var command = connection.CreateCommand())
         {
-            command.CommandText = """
+            command.CommandText = $"""
                 SELECT submission.SubmissionId, submission.ReviewRunId, run.ProjectName,
                        submitter.DisplayName, submission.SubmittedUtc, submission.Status,
                        reviewer.DisplayName, submission.ReviewedUtc
@@ -106,9 +112,11 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
                 INNER JOIN dbo.BiAgentReviewRuns AS run ON run.ReviewRunId = submission.ReviewRunId
                 INNER JOIN dbo.BiAgentApplicationUsers AS submitter ON submitter.UserId = submission.SubmittedByUserId
                 LEFT JOIN dbo.BiAgentApplicationUsers AS reviewer ON reviewer.UserId = submission.ReviewedByUserId
-                WHERE submission.SubmissionId = @SubmissionId AND run.ExpiresUtc > SYSUTCDATETIME();
+                WHERE submission.SubmissionId = @SubmissionId AND run.ExpiresUtc > SYSUTCDATETIME()
+                  {ScopePredicate};
                 """;
             command.Parameters.Add("@SubmissionId", SqlDbType.UniqueIdentifier).Value = submissionId;
+            AddScopeParameters(command, scope);
             await using var reader = await command.ExecuteReaderAsync(cancellationToken);
             if (!await reader.ReadAsync(cancellationToken))
             {
@@ -163,29 +171,30 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
 
     public async Task<IReadOnlyList<ReviewSubmissionSummary>> GetQueueAsync(
         bool includeReviewed,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null)
     {
         var submissions = new List<ReviewSubmissionSummary>();
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT submission.SubmissionId, submission.ReviewRunId, run.ProjectName,
                    submitter.DisplayName, submission.SubmittedUtc, submission.Status,
-                   COUNT(submissionFinding.ReviewFindingId)
+                   (SELECT COUNT(*)
+                    FROM dbo.BiAgentReviewSubmissionFindings AS submissionFinding
+                    WHERE submissionFinding.SubmissionId = submission.SubmissionId)
             FROM dbo.BiAgentReviewSubmissions AS submission
             INNER JOIN dbo.BiAgentReviewRuns AS run ON run.ReviewRunId = submission.ReviewRunId
             INNER JOIN dbo.BiAgentApplicationUsers AS submitter ON submitter.UserId = submission.SubmittedByUserId
-            LEFT JOIN dbo.BiAgentReviewSubmissionFindings AS submissionFinding
-                ON submissionFinding.SubmissionId = submission.SubmissionId
             WHERE run.ExpiresUtc > SYSUTCDATETIME()
               AND (@IncludeReviewed = 1 OR submission.Status = N'Submitted')
-            GROUP BY submission.SubmissionId, submission.ReviewRunId, run.ProjectName,
-                     submitter.DisplayName, submission.SubmittedUtc, submission.Status
+              {ScopePredicate}
             ORDER BY CASE WHEN submission.Status = N'Submitted' THEN 0 ELSE 1 END,
                      submission.SubmittedUtc DESC;
             """;
         command.Parameters.Add("@IncludeReviewed", SqlDbType.Bit).Value = includeReviewed;
+        AddScopeParameters(command, scope);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -204,28 +213,29 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
 
     public async Task<IReadOnlyList<ReviewSubmissionSummary>> GetMyQueueAsync(
         Guid submittedByUserId,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null)
     {
         var submissions = new List<ReviewSubmissionSummary>();
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
         await using var command = connection.CreateCommand();
-        command.CommandText = """
+        command.CommandText = $"""
             SELECT submission.SubmissionId, submission.ReviewRunId, run.ProjectName,
                    submitter.DisplayName, submission.SubmittedUtc, submission.Status,
-                   COUNT(submissionFinding.ReviewFindingId)
+                   (SELECT COUNT(*)
+                    FROM dbo.BiAgentReviewSubmissionFindings AS submissionFinding
+                    WHERE submissionFinding.SubmissionId = submission.SubmissionId)
             FROM dbo.BiAgentReviewSubmissions AS submission
             INNER JOIN dbo.BiAgentReviewRuns AS run ON run.ReviewRunId = submission.ReviewRunId
             INNER JOIN dbo.BiAgentApplicationUsers AS submitter ON submitter.UserId = submission.SubmittedByUserId
-            LEFT JOIN dbo.BiAgentReviewSubmissionFindings AS submissionFinding
-                ON submissionFinding.SubmissionId = submission.SubmissionId
             WHERE submission.SubmittedByUserId = @UserId
               AND run.ExpiresUtc > SYSUTCDATETIME()
-            GROUP BY submission.SubmissionId, submission.ReviewRunId, run.ProjectName,
-                     submitter.DisplayName, submission.SubmittedUtc, submission.Status
+              {ScopePredicate}
             ORDER BY submission.SubmittedUtc DESC;
             """;
         command.Parameters.Add("@UserId", SqlDbType.UniqueIdentifier).Value = submittedByUserId;
+        AddScopeParameters(command, scope);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -246,7 +256,8 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
         Guid submissionId,
         Guid reviewerUserId,
         IReadOnlyList<ReviewSubmissionFindingRequest> findings,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        ActiveWorkspaceScope? scope = null)
     {
         await using var connection = new SqlConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
@@ -257,6 +268,7 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
             connection,
             transaction,
             submissionId,
+            scope,
             cancellationToken);
         if (expectedFindingIds is null || !expectedFindingIds.SetEquals(findings.Select(item => item.ReviewFindingId)))
         {
@@ -265,7 +277,7 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
         }
 
         await using (var command = new SqlCommand(
-            """
+            $"""
             UPDATE dbo.BiAgentReviewSubmissions
             SET Status = N'Reviewed', ReviewedByUserId = @ReviewerUserId,
                 ReviewedUtc = SYSUTCDATETIME()
@@ -275,6 +287,7 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
                   SELECT 1 FROM dbo.BiAgentReviewRuns AS run
                   WHERE run.ReviewRunId = BiAgentReviewSubmissions.ReviewRunId
                     AND run.ExpiresUtc > SYSUTCDATETIME()
+                    {ScopePredicate}
               );
             SELECT @@ROWCOUNT;
             """,
@@ -283,6 +296,7 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
         {
             command.Parameters.Add("@ReviewerUserId", SqlDbType.UniqueIdentifier).Value = reviewerUserId;
             command.Parameters.Add("@SubmissionId", SqlDbType.UniqueIdentifier).Value = submissionId;
+            AddScopeParameters(command, scope);
             if (Convert.ToInt32(await command.ExecuteScalarAsync(cancellationToken)) != 1)
             {
                 await transaction.RollbackAsync(cancellationToken);
@@ -311,13 +325,14 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
         }
 
         await transaction.CommitAsync(cancellationToken);
-        return await GetAsync(submissionId, cancellationToken);
+        return await GetAsync(submissionId, cancellationToken, scope);
     }
 
     private async Task<Guid?> GetSubmissionIdAsync(
         string where,
         Guid id,
         Guid userId,
+        ActiveWorkspaceScope? scope,
         CancellationToken cancellationToken)
     {
         await using var connection = new SqlConnection(connectionString);
@@ -327,10 +342,12 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
             SELECT submission.SubmissionId
             FROM dbo.BiAgentReviewSubmissions AS submission
             INNER JOIN dbo.BiAgentReviewRuns AS run ON run.ReviewRunId = submission.ReviewRunId
-            {where} AND run.ExpiresUtc > SYSUTCDATETIME();
+            {where} AND run.ExpiresUtc > SYSUTCDATETIME()
+              {ScopePredicate};
             """;
         command.Parameters.Add("@Id", SqlDbType.UniqueIdentifier).Value = id;
         command.Parameters.Add("@UserId", SqlDbType.UniqueIdentifier).Value = userId;
+        AddScopeParameters(command, scope);
         var result = await command.ExecuteScalarAsync(cancellationToken);
         return result is Guid submissionId ? submissionId : null;
     }
@@ -340,22 +357,25 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
         SqlTransaction transaction,
         Guid reviewRunId,
         Guid uploadedByUserId,
+        ActiveWorkspaceScope? scope,
         CancellationToken cancellationToken)
     {
         var ids = new HashSet<Guid>();
         await using var command = new SqlCommand(
-            """
+            $"""
             SELECT finding.ReviewFindingId
             FROM dbo.BiAgentReviewFindings AS finding
             INNER JOIN dbo.BiAgentReviewRuns AS run ON run.ReviewRunId = finding.ReviewRunId
             WHERE run.ReviewRunId = @ReviewRunId
               AND run.UploadedByUserId = @UploadedByUserId
-              AND run.ExpiresUtc > SYSUTCDATETIME();
+              AND run.ExpiresUtc > SYSUTCDATETIME()
+              {ScopePredicate};
             """,
             connection,
             transaction);
         command.Parameters.Add("@ReviewRunId", SqlDbType.UniqueIdentifier).Value = reviewRunId;
         command.Parameters.Add("@UploadedByUserId", SqlDbType.UniqueIdentifier).Value = uploadedByUserId;
+        AddScopeParameters(command, scope);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -369,22 +389,25 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
         SqlConnection connection,
         SqlTransaction transaction,
         Guid submissionId,
+        ActiveWorkspaceScope? scope,
         CancellationToken cancellationToken)
     {
         var ids = new HashSet<Guid>();
         await using var command = new SqlCommand(
-            """
+            $"""
             SELECT item.ReviewFindingId
             FROM dbo.BiAgentReviewSubmissionFindings AS item
             INNER JOIN dbo.BiAgentReviewSubmissions AS submission
                 ON submission.SubmissionId = item.SubmissionId
             INNER JOIN dbo.BiAgentReviewRuns AS run ON run.ReviewRunId = submission.ReviewRunId
             WHERE item.SubmissionId = @SubmissionId AND submission.Status = N'Submitted'
-              AND run.ExpiresUtc > SYSUTCDATETIME();
+              AND run.ExpiresUtc > SYSUTCDATETIME()
+              {ScopePredicate};
             """,
             connection,
             transaction);
         command.Parameters.Add("@SubmissionId", SqlDbType.UniqueIdentifier).Value = submissionId;
+        AddScopeParameters(command, scope);
         await using var reader = await command.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
         {
@@ -393,4 +416,47 @@ public sealed class SqlReviewSubmissionStore(string connectionString) : IReviewS
 
         return ids.Count > 0 ? ids : null;
     }
+
+    private static void AddScopeParameters(SqlCommand command, ActiveWorkspaceScope? scope)
+    {
+        command.Parameters.Add("@ScopeType", SqlDbType.NVarChar, 20).Value =
+            scope is null ? DBNull.Value : scope.ScopeType;
+        command.Parameters.Add("@ScopeId", SqlDbType.UniqueIdentifier).Value =
+            scope is null ? DBNull.Value : scope.ScopeId;
+    }
+
+    private const string ScopePredicate = """
+        AND (
+            @ScopeType IS NULL
+            OR (
+                @ScopeType = N'Organization'
+                AND (
+                    run.OrganizationId = @ScopeId
+                    OR run.ProjectScopeId IN (
+                        SELECT ProjectId
+                        FROM dbo.BiAgentProjects
+                        WHERE OrganizationId = @ScopeId
+                    )
+                    OR run.TeamScopeId IN (
+                        SELECT team.TeamId
+                        FROM dbo.BiAgentTeams AS team
+                        INNER JOIN dbo.BiAgentProjects AS project ON project.ProjectId = team.ProjectId
+                        WHERE project.OrganizationId = @ScopeId
+                    )
+                )
+            )
+            OR (
+                @ScopeType = N'Project'
+                AND (
+                    run.ProjectScopeId = @ScopeId
+                    OR run.TeamScopeId IN (
+                        SELECT TeamId
+                        FROM dbo.BiAgentTeams
+                        WHERE ProjectId = @ScopeId
+                    )
+                )
+            )
+            OR (@ScopeType = N'Team' AND run.TeamScopeId = @ScopeId)
+        )
+        """;
 }

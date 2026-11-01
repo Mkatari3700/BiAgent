@@ -8,17 +8,17 @@ public sealed class ApplicationUserAccessMiddleware(
     RequestDelegate next,
     IApplicationUserStore userStore,
     ApplicationAuthenticationSettings settings,
-    ILogger<ApplicationUserAccessMiddleware> logger)
+    ILogger<ApplicationUserAccessMiddleware> logger,
+    IWebHostEnvironment? environment = null)
 {
     public async Task InvokeAsync(HttpContext context)
     {
-        var requiresApplicationRole =
-            context.Request.Path.StartsWithSegments("/api/admin") ||
-            context.Request.Path.StartsWithSegments("/api/governance-audit") ||
-            context.Request.Path.StartsWithSegments("/api/reviews") ||
+        var isApplicationApi =
+            context.Request.Path.StartsWithSegments("/api") ||
             context.Request.Path.StartsWithSegments("/mcp");
         var isSessionRequest = context.Request.Path == "/api/auth/session";
-        if ((!requiresApplicationRole && !isSessionRequest) ||
+        var isAccessRequest = context.Request.Path.StartsWithSegments("/api/access-requests");
+        if (!isApplicationApi ||
             context.User.Identity?.IsAuthenticated != true)
         {
             await next(context);
@@ -62,13 +62,16 @@ public sealed class ApplicationUserAccessMiddleware(
                 context,
                 StatusCodes.Status503ServiceUnavailable,
                 "Application access is unavailable.",
-                ApplicationDatabaseError.GetDetail(
-                    exception,
-                    "Verify database migration 008 and the application database permissions."));
+                environment is null
+                    ? "A database operation failed. Verify database connectivity, required database migrations/scripts, and application database permissions."
+                    : ApplicationDatabaseError.GetDetail(
+                        exception,
+                        environment,
+                        "Verify that the application-access, hierarchy, and access-request database scripts are applied and the application has the required permissions."));
             return;
         }
 
-        if (!applicationUser.IsEnabled)
+        if (!applicationUser.IsEnabled && !isSessionRequest && !isAccessRequest)
         {
             await WriteProblemAsync(
                 context,
@@ -79,24 +82,40 @@ public sealed class ApplicationUserAccessMiddleware(
         }
 
         context.Items[ApplicationUserContext.ItemKey] = applicationUser;
-        var roleClaims = new List<Claim>
+        var roleClaims = new List<Claim>();
+        if (applicationUser.IsEnabled)
         {
-            new(ClaimTypes.Role, "ApplicationUser")
-        };
-        if (applicationUser.IsAdmin)
-        {
-            roleClaims.Add(new Claim(ClaimTypes.Role, "ApplicationAdmin"));
-        }
-        if (applicationUser.IsManager)
-        {
-            roleClaims.Add(new Claim(ClaimTypes.Role, "ReviewManager"));
-        }
-        if (applicationUser.IsLead)
-        {
-            roleClaims.Add(new Claim(ClaimTypes.Role, "ReviewLead"));
+            roleClaims.Add(new Claim(ClaimTypes.Role, "ApplicationUser"));
+            if (applicationUser.IsAdmin)
+            {
+                roleClaims.Add(new Claim(ClaimTypes.Role, "ApplicationAdmin"));
+            }
+            if (applicationUser.IsManager)
+            {
+                roleClaims.Add(new Claim(ClaimTypes.Role, "ReviewManager"));
+            }
+            if (applicationUser.IsLead)
+            {
+                roleClaims.Add(new Claim(ClaimTypes.Role, "ReviewLead"));
+            }
+            if (applicationUser.IsOrgLead)
+            {
+                roleClaims.Add(new Claim(ClaimTypes.Role, "OrgLead"));
+            }
+            if (applicationUser.IsProjectLead)
+            {
+                roleClaims.Add(new Claim(ClaimTypes.Role, "ProjectLead"));
+            }
+            if (applicationUser.IsTeamLead)
+            {
+                roleClaims.Add(new Claim(ClaimTypes.Role, "TeamLead"));
+            }
         }
 
-        context.User.AddIdentity(new ClaimsIdentity(roleClaims, "BI Sentinel application roles"));
+        if (roleClaims.Count > 0)
+        {
+            context.User.AddIdentity(new ClaimsIdentity(roleClaims, "BI Sentinel application roles"));
+        }
         await next(context);
     }
 
