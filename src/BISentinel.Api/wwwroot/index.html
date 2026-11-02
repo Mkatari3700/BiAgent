@@ -6,8 +6,8 @@
   <meta name="description" content="BI Sentinel project review, governance, and performance tools">
   <title>BI Sentinel</title>
   <link rel="stylesheet" href="/auth.css?v=organization-hierarchy-1">
-  <link rel="stylesheet" href="/styles.css?v=workspace-scope-context-2">
-  <script src="/app.js?v=workspace-scope-context-2" defer></script>
+  <link rel="stylesheet" href="/styles.css?v=performance-assessment-priorities-1">
+  <script src="/app.js?v=performance-assessment-priorities-1" defer></script>
 </head>
 <body>
   <svg class="icon-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -48,10 +48,32 @@
       <span class="brand-mark" aria-hidden="true"><img src="/brand-mark.svg" alt=""></span>
       <span>BI Sentinel</span>
     </a>
-    <label id="workspace-scope-controls" class="workspace-scope-controls" for="workspace-scope-select" hidden>
-      <span>Working in</span>
-      <select id="workspace-scope-select" aria-label="Choose organization, project, or team"></select>
-    </label>
+    <div id="workspace-scope-controls" class="workspace-scope-controls" hidden>
+      <span class="workspace-scope-caption">Workspace</span>
+      <details id="workspace-scope-picker" class="workspace-scope-picker">
+        <summary id="workspace-scope-trigger" aria-label="Choose organization, project, or team" aria-controls="workspace-scope-panel">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-hierarchy"></use></svg>
+          <span id="workspace-scope-current" class="workspace-scope-current">Choose a scope</span>
+          <span id="workspace-scope-kind" class="workspace-scope-kind">SCOPE</span>
+          <span class="workspace-scope-chevron" aria-hidden="true"></span>
+        </summary>
+        <div id="workspace-scope-panel" class="workspace-scope-panel">
+          <div class="workspace-scope-panel-heading">
+            <div>
+              <strong>Choose your workspace</strong>
+              <span>Select the organization, project, or team to review.</span>
+            </div>
+          </div>
+          <label class="workspace-scope-search">
+            <span class="visually-hidden">Search workspace scopes</span>
+            <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5"></circle><path d="m10.5 10.5 4 4"></path></svg>
+            <input id="workspace-scope-search" type="search" placeholder="Search organizations, projects, or teams" autocomplete="off">
+          </label>
+          <div id="workspace-scope-filters" class="workspace-scope-filters" role="group" aria-label="Filter workspace scopes"></div>
+          <div id="workspace-scope-options" class="workspace-scope-options" role="list" aria-label="Available workspace scopes"></div>
+        </div>
+      </details>
+    </div>
     <div id="account-controls" class="account-controls" hidden>
       <details id="profile-menu" class="profile-menu">
         <summary class="profile-menu-trigger" aria-label="Open account menu">
@@ -251,8 +273,10 @@
               <option value="Team">Team</option>
             </select>
           </label>
-          <label class="intake-field"><span>Organization / project / team</span>
+          <label class="intake-field access-request-scope-field"><span>Organization / project / team</span>
+            <input id="access-request-scope-search" type="search" autocomplete="off" placeholder="Search by name or organization">
             <select id="access-request-scope-id" name="scopeId" required></select>
+            <small id="access-request-scope-search-status" class="access-request-scope-search-status" role="status" aria-live="polite"></small>
           </label>
           <label class="intake-field"><span>Role requested</span>
             <select id="access-request-role" name="roleName" required></select>
@@ -302,13 +326,31 @@
       </header>
       <p id="hierarchy-status" class="status" role="status" aria-live="polite">Loading access settings…</p>
       <p id="hierarchy-error" class="error-banner" role="alert" hidden></p>
+      <nav id="hierarchy-page-navigation" class="governance-page-navigation" aria-label="Organizations, projects, and teams pages">
+        <button class="governance-page-tab is-active" type="button" aria-current="page" data-hierarchy-page-tab="overview">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-hierarchy"></use></svg><span>Overview</span>
+        </button>
+        <button class="governance-page-tab" type="button" data-hierarchy-page-tab="build">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-organization"></use></svg><span>Build hierarchy</span>
+        </button>
+        <button class="governance-page-tab" type="button" data-hierarchy-page-tab="access">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-users"></use></svg><span>User access</span>
+        </button>
+        <button class="governance-page-tab" type="button" data-hierarchy-page-tab="roles">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-shield"></use></svg><span>Roles &amp; boundaries</span>
+        </button>
+      </nav>
+      <section data-hierarchy-page="overview" aria-label="Hierarchy overview">
       <section class="configuration-card" aria-labelledby="hierarchy-inventory-title">
         <h2 id="hierarchy-inventory-title">Hierarchy overview</h2>
         <p class="intake-note">Organizations, projects, and teams are grouped below in a table. Only hierarchy items visible to your account are listed.</p>
         <div id="hierarchy-inventory" class="hierarchy-inventory"></div>
       </section>
+      </section>
+      <section data-hierarchy-page="build" aria-label="Build hierarchy" hidden>
       <section class="configuration-card" aria-labelledby="hierarchy-create-title">
         <h2 id="hierarchy-create-title">Build your hierarchy</h2>
+        <p class="dashboard-description">Create organizations first, then add projects to an organization and teams to a project.</p>
         <div class="hierarchy-create-grid">
           <form id="hierarchy-organization-form" class="hierarchy-create-form">
             <label class="intake-field"><span>Organization</span><input name="name" maxlength="200" required placeholder="Organization name"></label>
@@ -326,6 +368,8 @@
           </form>
         </div>
       </section>
+      </section>
+      <section data-hierarchy-page="access" aria-label="User access" hidden>
       <section class="configuration-card" aria-labelledby="hierarchy-assign-title">
         <h2 id="hierarchy-assign-title">Assign users to a scope</h2>
         <form id="hierarchy-assignment-form" class="hierarchy-assignment-form">
@@ -345,6 +389,8 @@
           </table>
         </div>
       </section>
+      </section>
+      <section data-hierarchy-page="roles" aria-label="Roles and access boundaries" hidden>
       <section class="configuration-card" aria-labelledby="hierarchy-roles-title">
         <h2 id="hierarchy-roles-title">Roles and access boundaries</h2>
         <div class="hierarchy-role-list">
@@ -354,6 +400,7 @@
           <article><strong>Team Lead</strong><span>Manage membership and actions within the assigned team.</span></article>
           <article><strong>Read-only</strong><span>View data in the assigned scope without changing settings or workflow state.</span></article>
         </div>
+      </section>
       </section>
     </section>
     <div id="review-workspace" hidden>
@@ -628,7 +675,7 @@
         <div>
           <p class="eyebrow">EVIDENCE-FIRST STATIC ANALYSIS</p>
           <h1 id="performance-title">Performance Optimization</h1>
-          <p class="intro-copy">Inventory uploaded Power BI definitions and identify static optimization candidates. This assessment does not execute queries, collect tenant telemetry, or change Power BI content.</p>
+          <p class="intro-copy">Review uploaded Power BI definitions for static optimization candidates. BI Sentinel does not execute queries or change your model; recommendations must be validated and applied by your model owner.</p>
         </div>
       </header>
       <section class="configuration-card" aria-labelledby="performance-upload-title">
@@ -646,8 +693,18 @@
         <p id="performance-assessment-error" class="error-banner" role="alert" hidden></p>
       </section>
       <section id="performance-assessment-results" class="performance-assessment-results" aria-labelledby="performance-results-title" hidden>
-        <h2 id="performance-results-title">Performance Optimization Assessment</h2>
-        <p class="performance-evidence-note"><strong>Evidence boundary:</strong> static observations and hypotheses are not measured issues. No performance gain is claimed without benchmark evidence.</p>
+        <div class="performance-results-heading">
+          <div>
+            <p class="eyebrow">OFFLINE-READY ASSESSMENT</p>
+            <h2 id="performance-results-title">Assessment results</h2>
+          </div>
+          <button id="export-performance-assessment" class="button button-secondary" type="button" disabled>
+            <svg class="button-icon" viewBox="0 0 16 16" aria-hidden="true"><use href="#icon-download"></use></svg>
+            <span>Export Excel workbook</span>
+          </button>
+        </div>
+        <p id="performance-export-status" class="status" role="status" aria-live="polite"></p>
+        <p class="performance-evidence-note"><strong>Why recommendations are not already done:</strong> the assessment is read-only and has no access to your live model, refresh history, query traces, or capacity metrics. It does not apply changes. Validate each candidate with the model owner, implement it in Power BI, then benchmark and rerun the review. Assessments are not saved by BI Sentinel.</p>
         <div id="performance-assessment-output" class="performance-assessment-output"></div>
       </section>
     </section>

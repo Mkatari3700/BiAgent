@@ -364,6 +364,6 @@ public sealed class SqlReviewFeedbackStore(string connectionString) : IReviewFee
            OR @ScopeType = N'Project' AND
             (run.ProjectScopeId = @ScopeId
              OR run.TeamScopeId IN (SELECT TeamId FROM dbo.BiAgentTeams WHERE ProjectId = @ScopeId))
-           OR @ScopeType = N'Team' AND run.TeamScopeId = @ScopeId)
+           OR @ScopeType = N'Team' AND run.TeamScopeId = @ScopeId))
         """;
 }

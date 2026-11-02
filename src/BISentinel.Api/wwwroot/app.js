@@ -45,7 +45,13 @@ const elements = {
   accountInitial: document.querySelector("#account-initial"),
   profileMenu: document.querySelector("#profile-menu"),
   workspaceScopeControls: document.querySelector("#workspace-scope-controls"),
-  workspaceScopeSelect: document.querySelector("#workspace-scope-select"),
+  workspaceScopePicker: document.querySelector("#workspace-scope-picker"),
+  workspaceScopeTrigger: document.querySelector("#workspace-scope-trigger"),
+  workspaceScopeCurrent: document.querySelector("#workspace-scope-current"),
+  workspaceScopeKind: document.querySelector("#workspace-scope-kind"),
+  workspaceScopeSearch: document.querySelector("#workspace-scope-search"),
+  workspaceScopeFilters: document.querySelector("#workspace-scope-filters"),
+  workspaceScopeOptions: document.querySelector("#workspace-scope-options"),
   pageNavigations: [...document.querySelectorAll("[data-page-navigation]")],
   dashboardWorkspace: document.querySelector("#dashboard-workspace"),
   portalDashboardStatus: document.querySelector("#portal-dashboard-status"),
@@ -60,6 +66,8 @@ const elements = {
   accessRequestForm: document.querySelector("#access-request-form"),
   accessRequestScopeType: document.querySelector("#access-request-scope-type"),
   accessRequestScopeId: document.querySelector("#access-request-scope-id"),
+  accessRequestScopeSearch: document.querySelector("#access-request-scope-search"),
+  accessRequestScopeSearchStatus: document.querySelector("#access-request-scope-search-status"),
   accessRequestRole: document.querySelector("#access-request-role"),
   accessRequestMessage: document.querySelector("#access-request-message"),
   accessRequestApprovalFlow: document.querySelector("#access-request-approval-flow"),
@@ -97,6 +105,8 @@ const elements = {
   refreshSupportRequests: document.querySelector("#refresh-support-requests"),
   hierarchyNavigation: document.querySelector("#hierarchy-navigation"),
   hierarchyWorkspace: document.querySelector("#hierarchy-workspace"),
+  hierarchyPageTabs: [...document.querySelectorAll("[data-hierarchy-page-tab]")],
+  hierarchyPages: [...document.querySelectorAll("[data-hierarchy-page]")],
   hierarchyStatus: document.querySelector("#hierarchy-status"),
   hierarchyError: document.querySelector("#hierarchy-error"),
   hierarchyOrganizationForm: document.querySelector("#hierarchy-organization-form"),
@@ -212,6 +222,8 @@ const elements = {
   performanceAssessmentError: document.querySelector("#performance-assessment-error"),
   performanceAssessmentResults: document.querySelector("#performance-assessment-results"),
   performanceAssessmentOutput: document.querySelector("#performance-assessment-output"),
+  exportPerformanceAssessment: document.querySelector("#export-performance-assessment"),
+  performanceExportStatus: document.querySelector("#performance-export-status"),
   adminConfiguration: document.querySelector("#admin-configuration"),
   adminTabs: [...document.querySelectorAll("[data-admin-tab]")],
   adminPanels: [...document.querySelectorAll("[data-admin-panel]")],
@@ -357,6 +369,10 @@ window.fetch = async (...args) => {
 let currentFindings = [];
 let activeFindingCategory = "all";
 let currentProject = "";
+let currentPerformanceAssessment = null;
+let availableWorkspaceScopes = [];
+let activeWorkspaceScopeFilter = "all";
+let accessRequestSelectedScopeId = "";
 let currentReviewRunId = "";
 let feedback = {};
 let sharedFeedbackAvailable = false;
@@ -396,22 +412,36 @@ let currentSubmission = null;
 let submissionDrafts = {};
 let reviewerResponseDrafts = {};
 let reviewerSubmissionMode = false;
+let activeScopeCanReview = false;
+let activeScopeCanSubmit = false;
 const reviewerId = loadReviewerId();
 
 elements.sidebarToggle.addEventListener("click", toggleSidebar);
 elements.applicationStateRetry.addEventListener("click", () => window.location.reload());
-elements.workspaceScopeSelect.addEventListener("change", () => {
-  const selection = elements.workspaceScopeSelect.value;
+elements.workspaceScopeOptions.addEventListener("click", event => {
+  const option = event.target.closest("[data-workspace-scope]");
+  if (!option) return;
+  const selection = option.dataset.workspaceScope;
   if (selection === "all") {
     localStorage.setItem(workspaceScopeStorageKey, "all");
   } else if (selection) {
     localStorage.setItem(workspaceScopeStorageKey, selection);
   } else {
-    localStorage.removeItem(workspaceScopeStorageKey);
+    return;
   }
+  elements.workspaceScopePicker.open = false;
   window.location.reload();
 });
-elements.accessRequestScopeType.addEventListener("change", renderAccessRequestRoleOptions);
+elements.workspaceScopeSearch.addEventListener("input", renderWorkspaceScopeOptions);
+elements.accessRequestScopeType.addEventListener("change", () => {
+  elements.accessRequestScopeSearch.value = "";
+  accessRequestSelectedScopeId = "";
+  renderAccessRequestRoleOptions();
+});
+elements.accessRequestScopeSearch.addEventListener("input", renderAccessRequestScopeOptions);
+elements.accessRequestScopeId.addEventListener("change", () => {
+  accessRequestSelectedScopeId = elements.accessRequestScopeId.value;
+});
 elements.accessRequestForm.addEventListener("submit", submitAccessRequest);
 elements.refreshAccessRequests.addEventListener("click", refreshAccessRequestPage);
 elements.accessRequestSettingsForm.addEventListener("submit", saveAccessRequestSettings);
@@ -438,6 +468,9 @@ for (const dialog of document.querySelectorAll("dialog")) {
 }
 for (const tab of elements.reviewPageTabs) {
   tab.addEventListener("click", () => navigateReviewPage(tab.dataset.reviewPageTab));
+}
+for (const tab of elements.hierarchyPageTabs) {
+  tab.addEventListener("click", () => navigateHierarchyPage(tab.dataset.hierarchyPageTab));
 }
 for (const navigation of elements.moduleNavigations) {
   navigation.addEventListener("click", event => {
@@ -631,6 +664,13 @@ elements.supportRequestForm.addEventListener("submit", submitSupportRequest);
 elements.refreshSupportRequests.addEventListener("click", loadSupportRequests);
 elements.applyReviewerBulkDisposition.addEventListener("click", applyReviewerBulkDisposition);
 elements.performanceAssessmentForm.addEventListener("submit", runPerformanceAssessment);
+elements.exportPerformanceAssessment.addEventListener("click", exportPerformanceAssessment);
+elements.performanceArtifact.addEventListener("change", () => {
+  currentPerformanceAssessment = null;
+  elements.exportPerformanceAssessment.disabled = true;
+  elements.performanceAssessmentResults.hidden = true;
+  elements.performanceExportStatus.textContent = "";
+});
 elements.closeReviewError.addEventListener("click", () => elements.reviewErrorDialog.close());
 elements.openReviewResults.addEventListener("click", () => {
   elements.reviewSuccessDialog.close();
@@ -874,6 +914,7 @@ function routeWorkspaceFromLocation() {
   if (route === "/admin/hierarchy") {
     if (canManageHierarchy()) {
       setWorkspaceView("hierarchy");
+      setHierarchyPage(new URLSearchParams(window.location.search).get("page") || "overview");
     } else {
       navigateWorkspace("dashboard", true);
     }
@@ -960,6 +1001,9 @@ function navigateWorkspace(view, replace = false) {
     }
   }
   setWorkspaceView(view);
+  if (view === "hierarchy") {
+    setHierarchyPage(new URLSearchParams(window.location.search).get("page") || "overview");
+  }
   if (view === "administration") {
     setAdministrationTab("workspace");
   }
@@ -1021,6 +1065,48 @@ function navigateReviewPage(pageName) {
     window.history.pushState(null, "", url);
   }
   setReviewPage(requestedPage);
+}
+
+function navigateHierarchyPage(pageName) {
+  if (activeWorkspaceView !== "hierarchy" ||
+      !elements.hierarchyPages.some(page => page.dataset.hierarchyPage === pageName)) {
+    return;
+  }
+
+  const query = new URLSearchParams(window.location.search);
+  if (pageName === "overview") {
+    query.delete("page");
+  } else {
+    query.set("page", pageName);
+  }
+  const suffix = query.toString();
+  const url = `${window.location.pathname}${suffix ? `?${suffix}` : ""}${window.location.hash}`;
+  if (`${window.location.pathname}${window.location.search}${window.location.hash}` !== url) {
+    window.history.pushState(null, "", url);
+  }
+  setHierarchyPage(pageName);
+}
+
+function setHierarchyPage(pageName) {
+  const selectedPage = elements.hierarchyPages.find(page => page.dataset.hierarchyPage === pageName)
+    ?? elements.hierarchyPages.find(page => page.dataset.hierarchyPage === "overview");
+  if (!selectedPage) {
+    return;
+  }
+
+  for (const page of elements.hierarchyPages) {
+    page.hidden = page !== selectedPage;
+  }
+  for (const tab of elements.hierarchyPageTabs) {
+    const isSelected = tab.dataset.hierarchyPageTab === selectedPage.dataset.hierarchyPage;
+    tab.classList.toggle("is-active", isSelected);
+    if (isSelected) {
+      tab.setAttribute("aria-current", "page");
+    } else {
+      tab.removeAttribute("aria-current");
+    }
+  }
+  elements.pageContent.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function setReviewPage(pageName) {
@@ -2045,20 +2131,9 @@ async function loadWorkspaceScopeContext() {
 
   const available = await readJsonResponse(scopesResponse, "Workspace scopes");
   const scopes = available.scopes || [];
-  const optionElements = [];
-  if (available.isRootAdmin) {
-    optionElements.push(new Option("All organizations", "all"));
-  } else if (scopes.length > 1) {
-    optionElements.push(new Option("Choose an organization, project, or team", ""));
-  }
-  for (const scope of scopes) {
-    optionElements.push(new Option(scope.label, `${scope.scopeType}:${scope.scopeId}`));
-  }
-  if (optionElements.length === 0) {
-    optionElements.push(new Option("No assigned scopes", ""));
-  }
-  elements.workspaceScopeSelect.replaceChildren(...optionElements);
-
+  availableWorkspaceScopes = available.isRootAdmin
+    ? [{ scopeType: "All", scopeId: "all", label: "All organizations" }, ...scopes]
+    : scopes;
   const currentSelection = localStorage.getItem(workspaceScopeStorageKey);
   const isSelectionAvailable = currentSelection === "all"
     ? available.isRootAdmin
@@ -2076,8 +2151,23 @@ async function loadWorkspaceScopeContext() {
     localStorage.removeItem(workspaceScopeStorageKey);
   }
 
-  elements.workspaceScopeSelect.value = selection || "";
-  elements.workspaceScopeSelect.disabled = optionElements.length === 1 && !optionElements[0].value;
+  const selectedScope = availableWorkspaceScopes.find(scope =>
+    (scope.scopeType === "All" ? "all" : `${scope.scopeType}:${scope.scopeId}`) === selection);
+  elements.workspaceScopeCurrent.textContent = selectedScope?.label ||
+    (scopes.length ? "Choose a workspace scope" : "No assigned scopes");
+  elements.workspaceScopeKind.textContent = selectedScope?.scopeType === "All"
+    ? "ALL DATA"
+    : selectedScope?.scopeType.toUpperCase() || (scopes.length ? "CHOOSE" : "NO ACCESS");
+  elements.workspaceScopeTrigger.setAttribute(
+    "aria-label",
+    selectedScope
+      ? `Current scope: ${selectedScope.label}. Change organization, project, or team.`
+      : "Choose organization, project, or team");
+  elements.workspaceScopeFilters.replaceChildren();
+  activeWorkspaceScopeFilter = "all";
+  renderWorkspaceScopeFilters();
+  elements.workspaceScopeSearch.value = "";
+  renderWorkspaceScopeOptions();
   elements.workspaceScopeControls.hidden = false;
   const contextResponse = await fetch("/api/workspace/context", {
     headers: { Accept: "application/json" }
@@ -2087,7 +2177,81 @@ async function loadWorkspaceScopeContext() {
   }
 
   const context = await readJsonResponse(contextResponse, "Workspace context");
+  activeScopeCanReview = context.canReview === true;
+  activeScopeCanSubmit = context.activeScope !== null;
   renderWorkspaceScopeMembers(context);
+}
+
+function renderWorkspaceScopeFilters() {
+  elements.workspaceScopeFilters.replaceChildren();
+  const filters = [
+    ["all", "All", availableWorkspaceScopes.length],
+    ["Organization", "Organizations", availableWorkspaceScopes.filter(scope => scope.scopeType === "Organization").length],
+    ["Project", "Projects", availableWorkspaceScopes.filter(scope => scope.scopeType === "Project").length],
+    ["Team", "Teams", availableWorkspaceScopes.filter(scope => scope.scopeType === "Team").length]
+  ].filter(([key, , count]) => key === "all" || count > 0);
+  for (const [key, label, count] of filters) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `workspace-scope-filter${key === activeWorkspaceScopeFilter ? " is-active" : ""}`;
+    button.textContent = `${label} ${count}`;
+    button.setAttribute("aria-pressed", String(key === activeWorkspaceScopeFilter));
+    button.addEventListener("click", () => {
+      activeWorkspaceScopeFilter = key;
+      renderWorkspaceScopeFilters();
+      renderWorkspaceScopeOptions();
+    });
+    elements.workspaceScopeFilters.append(button);
+  }
+}
+
+function renderWorkspaceScopeOptions() {
+  const query = elements.workspaceScopeSearch.value.trim().toLocaleLowerCase();
+  const matchingScopes = availableWorkspaceScopes.filter(scope => {
+    const matchesType = activeWorkspaceScopeFilter === "all" ||
+      scope.scopeType === activeWorkspaceScopeFilter;
+    const matchesSearch = !query ||
+      `${scope.label} ${scope.scopeType}`.toLocaleLowerCase().includes(query);
+    return matchesType && matchesSearch;
+  });
+  elements.workspaceScopeOptions.replaceChildren();
+  if (!matchingScopes.length) {
+    const empty = document.createElement("p");
+    empty.className = "workspace-scope-empty";
+    empty.textContent = availableWorkspaceScopes.length
+      ? "No organization, project, or team matches your search."
+      : "Ask your administrator to assign you an organization, project, or team.";
+    elements.workspaceScopeOptions.append(empty);
+    return;
+  }
+
+  const currentSelection = localStorage.getItem(workspaceScopeStorageKey);
+  for (const scope of matchingScopes) {
+    const selection = scope.scopeType === "All"
+      ? "all"
+      : `${scope.scopeType}:${scope.scopeId}`;
+    const item = document.createElement("div");
+    item.className = "workspace-scope-option-item";
+    item.setAttribute("role", "listitem");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "workspace-scope-option";
+    button.dataset.workspaceScope = selection;
+    const isCurrent = currentSelection === selection;
+    button.setAttribute("aria-pressed", String(isCurrent));
+    const type = document.createElement("span");
+    type.className = `workspace-scope-option-type scope-type-${scope.scopeType.toLocaleLowerCase()}`;
+    type.textContent = scope.scopeType === "All" ? "ALL" : scope.scopeType;
+    const label = document.createElement("span");
+    label.className = "workspace-scope-option-label";
+    label.textContent = scope.label;
+    const status = document.createElement("span");
+    status.className = "workspace-scope-option-status";
+    status.textContent = isCurrent ? "Current" : "Select";
+    button.append(type, label, status);
+    item.append(button);
+    elements.workspaceScopeOptions.append(item);
+  }
 }
 
 function renderWorkspaceScopeMembers(context) {
@@ -2198,12 +2362,7 @@ async function refreshAccessRequestPage() {
 function renderAccessRequestRoleOptions() {
   const scopeType = elements.accessRequestScopeType.value;
   const scopedItems = accessRequestScopes.filter(item => item.scopeType === scopeType);
-  replaceSelectOptions(
-    elements.accessRequestScopeId,
-    scopedItems,
-    item => item.scopeId,
-    item => item.name
-  );
+  renderAccessRequestScopeOptions(scopedItems);
   const leadRole = {
     Organization: "OrgLead",
     Project: "ProjectLead",
@@ -2223,6 +2382,27 @@ function renderAccessRequestRoleOptions() {
     Project: "Approval sequence: Project Lead → Organization Lead → Root Admin",
     Team: "Approval sequence: Team Lead → Project Lead → Organization Lead → Root Admin"
   }[scopeType];
+}
+
+function renderAccessRequestScopeOptions(scopedItems = accessRequestScopes.filter(
+  item => item.scopeType === elements.accessRequestScopeType.value
+)) {
+  const query = elements.accessRequestScopeSearch.value.trim().toLocaleLowerCase();
+  const filteredItems = scopedItems.filter(item =>
+    item.name.toLocaleLowerCase().includes(query));
+  const currentScopeId = accessRequestSelectedScopeId || elements.accessRequestScopeId.value;
+  replaceSelectOptions(
+    elements.accessRequestScopeId,
+    filteredItems,
+    item => item.scopeId,
+    item => item.name
+  );
+  if (filteredItems.some(item => item.scopeId === currentScopeId)) {
+    elements.accessRequestScopeId.value = currentScopeId;
+  }
+  elements.accessRequestScopeSearchStatus.textContent = query
+    ? `${filteredItems.length} of ${scopedItems.length} ${elements.accessRequestScopeType.value.toLocaleLowerCase()} scopes match.`
+    : `${scopedItems.length} ${elements.accessRequestScopeType.value.toLocaleLowerCase()} ${scopedItems.length === 1 ? "scope" : "scopes"} available.`;
 }
 
 async function submitAccessRequest(event) {
@@ -5070,17 +5250,13 @@ async function displaySavedRuns(savedRuns, sourceName) {
   elements.status.textContent =
     `Review completed successfully for ${savedRuns.length} ${savedRuns.length === 1 ? "project" : "projects"}.`;
 
-  if (!isReviewReviewer()) {
-    try {
-      await loadMySubmission(currentReviewRunId);
-      renderFindings();
-    } catch (error) {
-      showError(error instanceof Error
-        ? `Review completed and saved, but your submission status could not be loaded: ${error.message}`
-        : "Review completed and saved, but your submission status could not be loaded.");
-    }
-  } else {
-    currentSubmission = null;
+  try {
+    await loadMySubmission(currentReviewRunId);
+    renderFindings();
+  } catch (error) {
+    showError(error instanceof Error
+      ? `Review completed and saved, but your submission status could not be loaded: ${error.message}`
+      : "Review completed and saved, but your submission status could not be loaded.");
   }
 
   await loadDashboard();
@@ -5209,6 +5385,8 @@ async function runPerformanceAssessment(event) {
 
   elements.performanceAssessmentError.hidden = true;
   elements.performanceAssessmentResults.hidden = true;
+  currentPerformanceAssessment = null;
+  elements.exportPerformanceAssessment.disabled = true;
   elements.runPerformanceAssessment.disabled = true;
   elements.performanceAssessmentStatus.textContent = `Analyzing ${file.name}…`;
   const form = new FormData();
@@ -5224,6 +5402,8 @@ async function runPerformanceAssessment(event) {
     }
 
     const assessment = await readJsonResponse(response, "Performance assessment");
+    currentPerformanceAssessment = assessment;
+    elements.exportPerformanceAssessment.disabled = false;
     renderPerformanceAssessment(assessment);
     elements.performanceAssessmentResults.hidden = false;
     elements.performanceAssessmentStatus.textContent =
@@ -5242,44 +5422,360 @@ async function runPerformanceAssessment(event) {
 function renderPerformanceAssessment(assessment) {
   const output = elements.performanceAssessmentOutput;
   output.replaceChildren();
-  const sections = [
-    ["Executive Summary", {
-      summary: assessment.executiveSummary,
-      scopeAnalyzed: assessment.scopeAnalyzed
-    }],
-    ["Model Inventory", assessment.modelInventory],
-    ["Report Inventory", assessment.reportInventory],
-    ["DAX Inventory", assessment.daxInventory],
-    ["Reusable Artifacts", assessment.reusableArtifacts],
-    ["Findings", assessment.findings],
-    ["Measured Issues / Potential Issues / Telemetry Unknowns", assessment.evidenceSeparation],
-    ["Potential Optimization Candidates", assessment.potentialOptimizationCandidates],
-    ["Evidence Gaps", assessment.evidenceGaps],
-    ["Risks", assessment.risks],
-    ["Recommended Next Steps", assessment.recommendedNextSteps],
-    ["Fabric / Premium Readiness", assessment.fabricReadiness],
-    ["Acceptance Gate Status", assessment.acceptanceGates]
-  ];
+  output.append(
+    renderPerformanceOverview(assessment),
+    renderPerformancePriorities(assessment),
+    renderPerformanceDaxAlternatives(assessment),
+    renderPerformanceFindingCategories(assessment),
+    renderPerformanceTechnicalDetails(assessment)
+  );
+}
 
-  for (const [title, content] of sections) {
-    const section = document.createElement("section");
-    section.className = "performance-assessment-section";
-    const details = document.createElement("details");
-    details.open = [
-      "Executive Summary",
-      "Findings",
-      "Potential Optimization Candidates",
-      "Evidence Gaps",
-      "Acceptance Gate Status"
-    ].includes(title);
-    const heading = document.createElement("summary");
-    heading.textContent = title;
-    const contentElement = renderAssessmentValue(content);
-    contentElement.classList.add("performance-assessment-content");
-    details.append(heading, contentElement);
-    section.append(details);
-    output.append(section);
+function renderPerformanceDaxAlternatives(assessment) {
+  const alternatives = (assessment.daxInventory || []).flatMap(item =>
+    (item.issues || [])
+      .filter(issue => issue.recommendedRewritePattern)
+      .map(issue => ({ ...issue, tableName: item.tableName, measureName: item.measureName, expression: item.expression })));
+  const section = document.createElement("section");
+  section.className = "performance-dax-alternatives";
+  const heading = document.createElement("h3");
+  heading.textContent = "Possible DAX alternatives";
+  const note = document.createElement("p");
+  note.className = "performance-section-intro";
+  note.textContent = "These are review candidates, not automatic rewrites. Confirm identical results for representative filter contexts, then benchmark before adopting.";
+  section.append(heading, note);
+
+  if (!alternatives.length) {
+    const empty = document.createElement("p");
+    empty.className = "performance-empty-state";
+    empty.textContent = "No specific DAX rewrite pattern was identified in the uploaded definitions.";
+    section.append(empty);
+    return section;
   }
+
+  const list = document.createElement("div");
+  list.className = "performance-dax-alternative-list";
+  for (const alternative of alternatives) {
+    const card = document.createElement("article");
+    card.className = "performance-dax-alternative";
+    const title = document.createElement("h4");
+    title.textContent = `${alternative.tableName || "Model"}[${alternative.measureName || "Expression"}]`;
+    const reason = document.createElement("p");
+    reason.className = "performance-finding-priority";
+    reason.textContent = `${alternative.issue} · ${alternative.confidence || "Confidence not assessed"} pattern detection`;
+    card.append(title, reason);
+    for (const [label, value, className] of [
+      ["Current expression", alternative.expression, "performance-dax-code"],
+      ["Possible alternative", alternative.recommendedRewritePattern, "performance-dax-rewrite"],
+      ["Validation before adopting", alternative.riskOfChange, "performance-dax-validation"]
+    ]) {
+      if (!value) continue;
+      const wrapper = document.createElement("div");
+      wrapper.className = className;
+      const caption = document.createElement("strong");
+      caption.textContent = label;
+      const content = document.createElement("pre");
+      content.textContent = value;
+      wrapper.append(caption, content);
+      card.append(wrapper);
+    }
+    list.append(card);
+  }
+  section.append(list);
+  return section;
+}
+
+function renderPerformanceOverview(assessment) {
+  const section = document.createElement("section");
+  section.className = "performance-overview-card";
+  const summary = assessment.executiveSummary || {};
+  const scope = assessment.scopeAnalyzed || {};
+  const heading = document.createElement("div");
+  heading.className = "performance-overview-heading";
+  const title = document.createElement("div");
+  const project = document.createElement("h3");
+  project.textContent = assessment.projectName || "Uploaded Power BI project";
+  const metadata = document.createElement("p");
+  metadata.textContent = `${assessment.artifactType || "Power BI artifact"} · Analyzed ${new Date(assessment.analyzedAt).toLocaleString()}`;
+  title.append(project, metadata);
+  heading.append(title);
+  section.append(heading);
+
+  const metrics = [
+    ["Static patterns", summary.confirmedStaticFindings ?? 0],
+    ["Improvement hypotheses", summary.hypotheses ?? 0],
+    ["Measured issues", summary.measuredIssues ?? 0],
+    ["Tables reviewed", scope.tables ?? 0],
+    ["Measures reviewed", scope.measures ?? 0],
+    ["Report pages", scope.pages ?? 0]
+  ];
+  const metricGrid = document.createElement("div");
+  metricGrid.className = "performance-metric-grid";
+  for (const [label, value] of metrics) {
+    const metric = document.createElement("article");
+    metric.className = "performance-metric";
+    const amount = document.createElement("strong");
+    amount.textContent = String(value);
+    const caption = document.createElement("span");
+    caption.textContent = label;
+    metric.append(amount, caption);
+    metricGrid.append(metric);
+  }
+  section.append(metricGrid);
+
+  const conclusion = document.createElement("p");
+  conclusion.className = "performance-overview-conclusion";
+  conclusion.textContent = summary.performanceConclusion || "No performance conclusion is available.";
+  section.append(conclusion);
+  return section;
+}
+
+function performancePriorityRank(finding) {
+  const priority = String(finding.priority || "").toLocaleLowerCase();
+  if (finding.evidenceType === "Optimization hypothesis" ||
+      priority.includes("only after telemetry") ||
+      priority.includes("until") ||
+      priority.includes("uncertainty")) return 2;
+  if (priority.startsWith("high") && priority.includes("evidence")) return 0;
+  if (priority.startsWith("high") || priority.startsWith("medium")) return 1;
+  if (priority.startsWith("low")) return 2;
+  return 3;
+}
+
+function performancePriorityLabel(finding) {
+  const rank = performancePriorityRank(finding);
+  if (rank === 0) return "Gather evidence";
+  if (rank === 1) return "Validate";
+  if (rank === 2) return "Consider later";
+  return "Review";
+}
+
+function renderPerformancePriorities(assessment) {
+  const section = document.createElement("section");
+  section.className = "performance-priorities-card";
+  const heading = document.createElement("div");
+  heading.className = "performance-section-heading";
+  const title = document.createElement("div");
+  const headingText = document.createElement("h3");
+  headingText.textContent = "Recommended actions";
+  const help = document.createElement("p");
+  help.textContent = "These are review recommendations, not changes made to your model. Gather evidence first, then validate candidates with the model owner.";
+  title.append(headingText, help);
+  heading.append(title);
+  section.append(heading);
+
+  const findings = [...(assessment.findings || [])]
+    .filter(finding => finding.recommendation)
+    .sort((left, right) => performancePriorityRank(left) - performancePriorityRank(right));
+  const list = document.createElement("ol");
+  list.className = "performance-priority-list";
+  for (const [index, finding] of findings.slice(0, 6).entries()) {
+    const item = document.createElement("li");
+    item.className = "performance-priority-item";
+    const badge = document.createElement("span");
+    const rank = performancePriorityRank(finding);
+    badge.className = `performance-priority-badge priority-${rank}`;
+    badge.textContent = performancePriorityLabel(finding);
+    const body = document.createElement("div");
+    const itemHeading = document.createElement("div");
+    itemHeading.className = "performance-priority-title";
+    const number = document.createElement("span");
+    number.textContent = `${String(index + 1).padStart(2, "0")}.`;
+    const findingTitle = document.createElement("h4");
+    findingTitle.textContent = finding.finding || "Recommended improvement";
+    itemHeading.append(number, findingTitle);
+    const recommendation = document.createElement("p");
+    recommendation.className = "performance-action";
+    recommendation.textContent = finding.recommendation;
+    const context = document.createElement("p");
+    context.className = "performance-priority-context";
+    context.textContent = `${finding.category || "General"} · ${finding.priority || "Priority not assessed"}`;
+    body.append(itemHeading, recommendation, context);
+    item.append(badge, body);
+    list.append(item);
+  }
+  if (!findings.length) {
+    const empty = document.createElement("p");
+    empty.className = "performance-empty-state";
+    empty.textContent = "No improvement actions were identified for the uploaded evidence.";
+    section.append(empty);
+  } else {
+    section.append(list);
+  }
+  return section;
+}
+
+function renderPerformanceFindingCategories(assessment) {
+  const section = document.createElement("section");
+  section.className = "performance-findings-card";
+  const heading = document.createElement("div");
+  heading.className = "performance-section-heading";
+  const title = document.createElement("div");
+  const headingText = document.createElement("h3");
+  headingText.textContent = "Findings by category";
+  const help = document.createElement("p");
+  help.textContent = "Review the supporting evidence, impact, and suggested next step for each finding.";
+  title.append(headingText, help);
+  heading.append(title);
+  section.append(heading);
+
+  const findings = assessment.findings || [];
+  const categories = ["All", ...new Set(findings.map(finding => finding.category || "Other"))];
+  const filters = document.createElement("div");
+  filters.className = "performance-category-filters";
+  filters.setAttribute("role", "group");
+  filters.setAttribute("aria-label", "Filter findings by category");
+  const results = document.createElement("div");
+  results.className = "performance-finding-list";
+  const renderCategory = selected => {
+    results.replaceChildren();
+    const matches = selected === "All"
+      ? findings
+      : findings.filter(finding => (finding.category || "Other") === selected);
+    for (const finding of matches) {
+      const card = document.createElement("article");
+      card.className = "performance-finding-card";
+      const top = document.createElement("div");
+      top.className = "performance-finding-heading";
+      const findingTitle = document.createElement("h4");
+      findingTitle.textContent = finding.finding || "Finding";
+      const tag = document.createElement("span");
+      tag.className = "performance-finding-category";
+      tag.textContent = finding.category || "Other";
+      top.append(findingTitle, tag);
+      card.append(top);
+      const priority = document.createElement("p");
+      priority.className = "performance-finding-priority";
+      priority.textContent = `${finding.priority || "Priority not assessed"} · ${finding.evidenceType || "Evidence type not specified"} · Confidence: ${finding.confidence || "Not assessed"}`;
+      card.append(priority);
+      for (const [label, value] of [
+        ["Why it matters", finding.impact],
+        ["Evidence", finding.evidence],
+        ["Recommended action", finding.recommendation],
+        ["Expected benefit", finding.expectedBenefit]
+      ]) {
+        if (!value) continue;
+        const detail = document.createElement("p");
+        detail.className = label === "Recommended action" ? "performance-finding-action" : "performance-finding-detail";
+        const detailLabel = document.createElement("strong");
+        detailLabel.textContent = `${label}: `;
+        detail.append(detailLabel, document.createTextNode(value));
+        card.append(detail);
+      }
+      results.append(card);
+    }
+    if (!matches.length) {
+      const empty = document.createElement("p");
+      empty.className = "performance-empty-state";
+      empty.textContent = "No findings in this category.";
+      results.append(empty);
+    }
+  };
+  for (const [index, category] of categories.entries()) {
+    const filter = document.createElement("button");
+    filter.type = "button";
+    filter.className = `performance-category-filter${index === 0 ? " is-active" : ""}`;
+    filter.textContent = category === "All" ? `All (${findings.length})` :
+      `${category} (${findings.filter(finding => (finding.category || "Other") === category).length})`;
+    filter.setAttribute("aria-pressed", index === 0 ? "true" : "false");
+    filter.addEventListener("click", () => {
+      for (const button of filters.querySelectorAll("button")) {
+        const active = button === filter;
+        button.classList.toggle("is-active", active);
+        button.setAttribute("aria-pressed", String(active));
+      }
+      renderCategory(category);
+    });
+    filters.append(filter);
+  }
+  section.append(filters, results);
+  renderCategory("All");
+  return section;
+}
+
+function renderPerformanceTechnicalDetails(assessment) {
+  const section = document.createElement("section");
+  section.className = "performance-technical-details";
+  const title = document.createElement("h3");
+  title.textContent = "Technical detail";
+  const intro = document.createElement("p");
+  intro.className = "performance-section-intro";
+  intro.textContent = "Expand a section when you need the full inventory, evidence gaps, or validation criteria.";
+  section.append(title, intro);
+  const groups = [
+    ["Model inventory", assessment.modelInventory],
+    ["Report and visual inventory", assessment.reportInventory],
+    ["DAX inventory", assessment.daxInventory],
+    ["Evidence gaps and telemetry needed", {
+      evidenceGaps: assessment.evidenceGaps,
+      evidenceSeparation: assessment.evidenceSeparation
+    }],
+    ["Optimization candidates and risks", {
+      potentialOptimizationCandidates: assessment.potentialOptimizationCandidates,
+      risks: assessment.risks
+    }],
+    ["Validation gates and next steps", {
+      acceptanceGates: assessment.acceptanceGates,
+      recommendedNextSteps: assessment.recommendedNextSteps,
+      fabricReadiness: assessment.fabricReadiness
+    }],
+    ["Reusable artifacts", assessment.reusableArtifacts]
+  ];
+  const list = document.createElement("div");
+  list.className = "performance-technical-list";
+  for (const [index, [name, value]] of groups.entries()) {
+    const details = document.createElement("details");
+    details.className = "performance-technical-item";
+    details.open = index === 0;
+    const summary = document.createElement("summary");
+    summary.textContent = name;
+    const content = renderAssessmentValue(value);
+    content.classList.add("performance-assessment-content");
+    details.append(summary, content);
+    list.append(details);
+  }
+  section.append(list);
+  return section;
+}
+
+async function exportPerformanceAssessment() {
+  if (!elements.performanceArtifact.files[0] || !currentPerformanceAssessment) {
+    elements.performanceExportStatus.textContent = "Run an assessment before exporting.";
+    return;
+  }
+
+  elements.exportPerformanceAssessment.disabled = true;
+  elements.performanceExportStatus.textContent = "Preparing the offline Excel workbook…";
+  const form = new FormData();
+  form.append("file", elements.performanceArtifact.files[0]);
+  try {
+    const response = await fetch("/api/performance-optimization/export", {
+      method: "POST",
+      body: form,
+      headers: { Accept: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }
+    });
+    if (!response.ok) {
+      throw new Error(await readApiError(response, "Excel export could not be completed."));
+    }
+    const workbook = await response.blob();
+    const url = URL.createObjectURL(workbook);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${sanitizeDownloadName(currentPerformanceAssessment.projectName || "PowerBI-Assessment")}-Performance-Review.xlsx`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    elements.performanceExportStatus.textContent = "Excel workbook downloaded. It contains multiple tabs for offline review; BI Sentinel does not save the assessment.";
+  } catch (error) {
+    elements.performanceExportStatus.textContent = error instanceof Error
+      ? error.message
+      : "Excel export could not be completed.";
+  } finally {
+    elements.exportPerformanceAssessment.disabled = false;
+  }
+}
+
+function sanitizeDownloadName(value) {
+  return value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").trim() || "PowerBI-Assessment";
 }
 
 function renderAssessmentValue(value) {
@@ -5430,11 +5926,7 @@ async function loadReviewById(reviewRunId, submission = null) {
       reviewerResponseDrafts = {};
     } else {
       reviewerSubmissionMode = false;
-      if (!isReviewReviewer()) {
-        await loadMySubmission(currentReviewRunId);
-      } else {
-        currentSubmission = null;
-      }
+      await loadMySubmission(currentReviewRunId);
     }
     renderSummary({ ...entry.summary, findings: currentFindings });
     renderFindings();
@@ -5453,7 +5945,12 @@ async function loadReviewById(reviewRunId, submission = null) {
 function isReviewReviewer() {
   return applicationSession?.isAdmin === true ||
     applicationSession?.isManager === true ||
-    applicationSession?.isLead === true;
+    applicationSession?.isLead === true ||
+    activeScopeCanReview;
+}
+
+function canSubmitReview() {
+  return applicationSession?.isAuthenticated === true && activeScopeCanSubmit;
 }
 
 async function loadMySubmission(reviewRunId) {
@@ -5466,6 +5963,19 @@ async function loadMySubmission(reviewRunId) {
   );
   if (!response.ok) {
     throw new Error(await readApiError(response, "Your saved review submission could not be loaded."));
+  }
+
+  if (response.status === 204) {
+    currentSubmission = null;
+    return;
+  }
+
+  if (response.status === 200) {
+    const body = await response.clone().text();
+    if (!body.trim()) {
+      currentSubmission = null;
+      return;
+    }
   }
 
   currentSubmission = await readJsonResponse(response, "Submission status");
@@ -5537,7 +6047,9 @@ async function submitCurrentReviewWorkflow() {
 }
 
 function updateSubmissionControls() {
-  const showSubmitterControls = !isReviewReviewer() && currentFindings.length > 0;
+  const showSubmitterControls = canSubmitReview() &&
+    !reviewerSubmissionMode &&
+    currentFindings.length > 0;
   const showReviewerControls = reviewerSubmissionMode && currentSubmission?.status === "Submitted";
   elements.submissionControls.hidden = !showSubmitterControls && !showReviewerControls;
   elements.reviewerBulkActions.hidden = !showReviewerControls;
@@ -6009,7 +6521,7 @@ function renderFinding(finding) {
 
   if (applicationSession?.isAuthenticated) {
     card.append(header, message, recommendation);
-    if (!isReviewReviewer() || (reviewerSubmissionMode && currentSubmission)) {
+    if (canSubmitReview() || currentSubmission) {
       card.append(renderSubmissionFinding(finding));
     }
     return card;

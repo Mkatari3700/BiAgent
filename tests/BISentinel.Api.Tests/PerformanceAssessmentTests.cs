@@ -1,4 +1,5 @@
 using System.IO.Compression;
+using System.Xml.Linq;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Options;
 using BISentinel.Api.PerformanceOptimization;
@@ -103,6 +104,35 @@ public sealed class PerformanceAssessmentTests
         Assert.False(assessment.AcceptanceGates.Single(gate => gate.Gate.StartsWith("PO-3", StringComparison.Ordinal)).Passed);
         Assert.Contains(assessment.EvidenceGaps, gap => gap.MissingEvidence == "Model memory footprint");
         Assert.Contains(assessment.ReportInventory, page => page.PageName == "Sales" && page.SlicerCount == 1);
+    }
+
+    [Fact]
+    public void ExcelExporter_CreatesMultiSheetOfflineWorkbook()
+    {
+        using var fixture = new AssessmentProjectFixture();
+        var assessment = new PerformanceAssessmentService(new PbipProjectReader())
+            .Assess(fixture.Root);
+
+        var workbook = new PerformanceAssessmentExcelExporter().Export(assessment);
+
+        using var stream = new MemoryStream(workbook);
+        using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+        var workbookEntry = archive.GetEntry("xl/workbook.xml")
+            ?? throw new InvalidDataException("Workbook metadata was not written.");
+        using var reader = new StreamReader(workbookEntry.Open());
+        var workbookXml = reader.ReadToEnd();
+        Assert.Contains("Key Improvements", workbookXml, StringComparison.Ordinal);
+        Assert.Contains("DAX Inventory", workbookXml, StringComparison.Ordinal);
+        Assert.Contains("Relationships", workbookXml, StringComparison.Ordinal);
+        Assert.Contains("Evidence and Gates", workbookXml, StringComparison.Ordinal);
+        Assert.Equal(9, archive.Entries.Count(entry => entry.FullName.StartsWith(
+            "xl/worksheets/sheet", StringComparison.Ordinal)));
+        Assert.NotNull(archive.GetEntry("[Content_Types].xml"));
+        foreach (var entry in archive.Entries.Where(item => item.FullName.EndsWith(".xml", StringComparison.Ordinal)))
+        {
+            using var xmlStream = entry.Open();
+            Assert.NotNull(XDocument.Load(xmlStream).Root);
+        }
     }
 
     [Fact]

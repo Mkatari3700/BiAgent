@@ -371,18 +371,36 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
             WHERE run.ExpiresUtc > SYSUTCDATETIME()
               AND (@UploadedByUserId IS NULL OR run.UploadedByUserId = @UploadedByUserId)
               AND (@ProjectName IS NULL OR run.ProjectName LIKE @ProjectName ESCAPE '~')
-              AND (@ScopeType IS NULL OR
-                (@ScopeType = N'Organization' AND
-                  (run.OrganizationId = @ScopeId
-                   OR run.ProjectScopeId IN (SELECT ProjectId FROM dbo.BiAgentProjects WHERE OrganizationId = @ScopeId)
-                   OR run.TeamScopeId IN
-                       (SELECT team.TeamId FROM dbo.BiAgentTeams AS team
-                        INNER JOIN dbo.BiAgentProjects AS project ON project.ProjectId = team.ProjectId
-                        WHERE project.OrganizationId = @ScopeId))
-                 OR @ScopeType = N'Project' AND
-                  (run.ProjectScopeId = @ScopeId
-                   OR run.TeamScopeId IN (SELECT TeamId FROM dbo.BiAgentTeams WHERE ProjectId = @ScopeId))
-                 OR @ScopeType = N'Team' AND run.TeamScopeId = @ScopeId)
+              AND
+              (
+                  @ScopeType IS NULL
+                  OR
+                  (
+                      @ScopeType = N'Organization'
+                      AND
+                      (
+                          run.OrganizationId = @ScopeId
+                          OR run.ProjectScopeId IN
+                              (SELECT ProjectId FROM dbo.BiAgentProjects WHERE OrganizationId = @ScopeId)
+                          OR run.TeamScopeId IN
+                              (SELECT team.TeamId
+                               FROM dbo.BiAgentTeams AS team
+                               INNER JOIN dbo.BiAgentProjects AS project ON project.ProjectId = team.ProjectId
+                               WHERE project.OrganizationId = @ScopeId)
+                      )
+                  )
+                  OR
+                  (
+                      @ScopeType = N'Project'
+                      AND
+                      (
+                          run.ProjectScopeId = @ScopeId
+                          OR run.TeamScopeId IN
+                              (SELECT TeamId FROM dbo.BiAgentTeams WHERE ProjectId = @ScopeId)
+                      )
+                  )
+                  OR (@ScopeType = N'Team' AND run.TeamScopeId = @ScopeId)
+              )
             ORDER BY run.ReviewedUtc DESC;
             """;
         command.Parameters.Add("@Limit", SqlDbType.Int).Value = limit;
@@ -435,18 +453,36 @@ public sealed class SqlReviewHistoryStore(string connectionString) : IReviewHist
                 WHERE ReviewRunId = @ReviewRunId
                   AND (@UploadedByUserId IS NULL OR UploadedByUserId = @UploadedByUserId)
                   AND ExpiresUtc > SYSUTCDATETIME()
-                  AND (@ScopeType IS NULL OR
-                    (@ScopeType = N'Organization' AND
-                      (r.OrganizationId = @ScopeId
-                       OR r.ProjectScopeId IN (SELECT ProjectId FROM dbo.BiAgentProjects WHERE OrganizationId = @ScopeId)
-                       OR r.TeamScopeId IN
-                           (SELECT team.TeamId FROM dbo.BiAgentTeams AS team
-                            INNER JOIN dbo.BiAgentProjects AS project ON project.ProjectId = team.ProjectId
-                            WHERE project.OrganizationId = @ScopeId))
-                     OR @ScopeType = N'Project' AND
-                      (r.ProjectScopeId = @ScopeId
-                       OR r.TeamScopeId IN (SELECT TeamId FROM dbo.BiAgentTeams WHERE ProjectId = @ScopeId))
-                     OR @ScopeType = N'Team' AND r.TeamScopeId = @ScopeId);
+                  AND
+                  (
+                      @ScopeType IS NULL
+                      OR
+                      (
+                          @ScopeType = N'Organization'
+                          AND
+                          (
+                              r.OrganizationId = @ScopeId
+                              OR r.ProjectScopeId IN
+                                  (SELECT ProjectId FROM dbo.BiAgentProjects WHERE OrganizationId = @ScopeId)
+                              OR r.TeamScopeId IN
+                                  (SELECT team.TeamId
+                                   FROM dbo.BiAgentTeams AS team
+                                   INNER JOIN dbo.BiAgentProjects AS project ON project.ProjectId = team.ProjectId
+                                   WHERE project.OrganizationId = @ScopeId)
+                          )
+                      )
+                      OR
+                      (
+                          @ScopeType = N'Project'
+                          AND
+                          (
+                              r.ProjectScopeId = @ScopeId
+                              OR r.TeamScopeId IN
+                                  (SELECT TeamId FROM dbo.BiAgentTeams WHERE ProjectId = @ScopeId)
+                          )
+                      )
+                      OR (@ScopeType = N'Team' AND r.TeamScopeId = @ScopeId)
+                  );
                 """;
             command.Parameters.Add("@ReviewRunId", SqlDbType.UniqueIdentifier).Value = reviewRunId;
             command.Parameters.Add("@UploadedByUserId", SqlDbType.UniqueIdentifier).Value =

@@ -18,7 +18,10 @@ public sealed record WorkspaceMemberSummary(
 public sealed record WorkspaceContextResponse(
     ActiveWorkspaceScope? ActiveScope,
     string? ActiveScopeLabel,
-    IReadOnlyList<WorkspaceMemberSummary> Members);
+    IReadOnlyList<WorkspaceMemberSummary> Members)
+{
+    public bool CanReview { get; init; }
+}
 
 public static class WorkspaceScopeOptionsBuilder
 {

@@ -263,6 +263,7 @@ builder.Services.AddHttpClient<PowerBiGovernanceAuditClient>(client =>
 });
 builder.Services.AddSingleton<PbipProjectInputService>();
 builder.Services.AddSingleton<PerformanceAssessmentService>();
+builder.Services.AddSingleton<PerformanceAssessmentExcelExporter>();
 builder.Services.AddSingleton<PbiToolsExtractor>();
 builder.Services.AddSingleton<IReviewRule, ProjectStructureRule>();
 builder.Services.AddSingleton<IReviewRule, TableNamingRule>();
@@ -354,6 +355,7 @@ if (entraAuthenticationEnabled)
 {
     app.UseMiddleware<ApplicationUserAccessMiddleware>();
     app.UseMiddleware<WorkspaceScopeMiddleware>();
+    app.UseMiddleware<ScopedReviewAccessMiddleware>();
     app.Use(async (context, next) =>
     {
         var path = context.Request.Path;
@@ -556,10 +558,18 @@ app.MapGet(
                 settings.BootstrapAdminObjectId,
                 user.IsAdmin,
                 cancellationToken);
+            var activeScope = ActiveWorkspaceScope.Get(httpContext);
+            var canReview = user.IsAdmin || user.IsManager || user.IsLead ||
+                (activeScope is not null && await hierarchyStore.CanReviewScopeAsync(
+                    settings.TenantId,
+                    user.UserId,
+                    activeScope.ScopeType,
+                    activeScope.ScopeId,
+                    cancellationToken));
             return Results.Ok(BuildWorkspaceContext(
                 snapshot,
-                ActiveWorkspaceScope.Get(httpContext),
-                user.IsAdmin));
+                activeScope,
+                user.IsAdmin) with { CanReview = canReview });
         }
         catch (SqlException exception)
         {
@@ -914,7 +924,7 @@ app.MapGet(
                 detail: ApplicationDatabaseError.GetDetail(
                     exception,
                     app.Environment,
-                    "Verify that the review-history, application-access, governance, review-submission, and support database scripts are applied and the application has the required permissions."),
+                    "Verify that the review-history, application-access, governance, review-submission, workspace hierarchy (migration 019), and support database scripts are applied and the application has the required permissions."),
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
@@ -2055,7 +2065,7 @@ else
                 return Results.Problem(
                     title: "Governance Audit history could not be loaded",
                     detail: exception.Number == 208
-                        ? "The Governance Audit history schema is incomplete. Apply migrations 007, 009, 010, 011, 014, 015, and 016 to SmartAgent."
+                        ? "The Governance Audit history schema is incomplete. Apply migrations 007, 009, 010, 011, 014, 015, and 016 to smartAgent."
                         : "Apply Governance Audit migrations 007, 009, 010, 011, 014, 015, and 016 and verify application database permissions.",
                     statusCode: StatusCodes.Status503ServiceUnavailable);
             }
@@ -2094,7 +2104,7 @@ else
                 return Results.Problem(
                     title: "Governance Audit run could not be loaded",
                     detail: exception.Number == 208
-                        ? "The Governance Audit history or exception schema is incomplete. Apply migrations 007, 009, 010, 011, 014, 015, and 016 to SmartAgent."
+                        ? "The Governance Audit history or exception schema is incomplete. Apply migrations 007, 009, 010, 011, 014, 015, and 016 to smartAgent."
                         : "Verify Governance Audit migrations 007, 009, 010, 011, 014, 015, and 016 and application database permissions.",
                     statusCode: StatusCodes.Status503ServiceUnavailable);
             }
@@ -2332,7 +2342,7 @@ else
                     exception.Number);
                 return Results.Problem(
                     title: "Governance Audit scope could not be loaded",
-                    detail: $"The approved workspace scope could not be read (SQL error {exception.Number}). Check that the application is connected to SmartAgent and review the server log.",
+                    detail: $"The approved workspace scope could not be read (SQL error {exception.Number}). Check that the application is connected to smartAgent and review the server log.",
                     statusCode: StatusCodes.Status503ServiceUnavailable);
             }
 
@@ -2431,30 +2441,30 @@ else
                         ? "Governance exception status could not be applied"
                         : "Governance Audit results could not be saved",
                     detail: exception.Number == 207
-                        ? "Power BI was read, but required Governance Audit columns are missing. Apply migrations 009 and 010 to SmartAgent, then retry."
+                        ? "Power BI was read, but required Governance Audit columns are missing. Apply migrations 009 and 010 to smartAgent, then retry."
                         : exception.Number == 547 &&
                           exception.Message.Contains(
                               "CK_BiAgentGovernanceAuditRunFindings_Severity",
                               StringComparison.OrdinalIgnoreCase)
-                            ? "Power BI was read, but the database severity constraint does not permit the selected governance check severity. Apply database migration 013 to SmartAgent, then retry the scan."
+                            ? "Power BI was read, but the database severity constraint does not permit the selected governance check severity. Apply database migration 013 to smartAgent, then retry the scan."
                         : exception.Number == 547 &&
                           exception.Message.Contains(
                               "CK_BiAgentGovernanceAuditRunArtifacts_Type",
                               StringComparison.OrdinalIgnoreCase)
-                            ? "Power BI was read, but the database does not permit Dashboard records yet. Apply database migration 010 to SmartAgent, then retry the scan."
+                            ? "Power BI was read, but the database does not permit Dashboard records yet. Apply database migration 010 to smartAgent, then retry the scan."
                         : exception.Number == 208 &&
                           exception.Message.Contains(
                               "BiAgentGovernanceAuditRunGlobalArtifacts",
                               StringComparison.OrdinalIgnoreCase)
-                            ? "Power BI was read, but the database does not have the global Apps/Gateways history table. Apply database migration 011 to SmartAgent, then retry the scan."
+                            ? "Power BI was read, but the database does not have the global Apps/Gateways history table. Apply database migration 011 to smartAgent, then retry the scan."
                         : exception.Number == 208 &&
                           (exception.Message.Contains("BiAgentGovernanceAuditRunReportConnections", StringComparison.OrdinalIgnoreCase) ||
                            exception.Message.Contains("BiAgentGovernanceAuditRunGlobalArtifacts", StringComparison.OrdinalIgnoreCase))
-                            ? "Power BI was read, but required inventory tables are missing. Apply database migration 014 to SmartAgent, then retry the scan."
+                            ? "Power BI was read, but required inventory tables are missing. Apply database migration 014 to smartAgent, then retry the scan."
                         : exception.Number == 208 &&
                           exception.Message.Contains("BiAgentGovernanceExceptions", StringComparison.OrdinalIgnoreCase)
-                            ? "The audit run was saved, but exception status could not be loaded. Apply database migration 015 to SmartAgent and verify application database permissions."
-                            : $"Power BI was read, but its results could not be saved (SQL error {exception.Number}). Review the server log and confirm the application is connected to SmartAgent.",
+                            ? "The audit run was saved, but exception status could not be loaded. Apply database migration 015 to smartAgent and verify application database permissions."
+                            : $"Power BI was read, but its results could not be saved (SQL error {exception.Number}). Review the server log and confirm the application is connected to smartAgent.",
                     statusCode: StatusCodes.Status503ServiceUnavailable);
             }
         })
@@ -2744,6 +2754,63 @@ app.MapPost(
     .ProducesProblem(StatusCodes.Status400BadRequest)
     .ProducesProblem(StatusCodes.Status413PayloadTooLarge);
 
+app.MapPost(
+    "/api/performance-optimization/export",
+    async (
+        IFormFile file,
+        PbipProjectInputService projectInput,
+        PerformanceAssessmentService assessmentService,
+        PerformanceAssessmentExcelExporter excelExporter,
+        ILogger<Program> logger,
+        CancellationToken cancellationToken) =>
+    {
+        try
+        {
+            var assessment = await projectInput.ProcessArtifactAsync(
+                file,
+                allowLooseArtifacts: true,
+                (projectPath, projectName, token) => Task.FromResult(
+                    assessmentService.Assess(
+                        projectPath,
+                        projectName,
+                        Path.GetExtension(file.FileName))),
+                cancellationToken);
+            var fileName = System.Text.RegularExpressions.Regex.Replace(
+                assessment.ProjectName,
+                "[<>:\"/\\\\|?*\\x00-\\x1f]",
+                "-").Trim();
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                fileName = "PowerBI-Assessment";
+            }
+
+            return Results.File(
+                excelExporter.Export(assessment),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                $"{fileName}-Performance-Review.xlsx");
+        }
+        catch (InvalidDataException exception)
+        {
+            logger.LogWarning(exception, "Uploaded Power BI artifact could not be exported.");
+            return Results.Problem(
+                title: "Excel export could not be generated for this artifact",
+                detail: exception.Message,
+                statusCode: StatusCodes.Status400BadRequest);
+        }
+    })
+    .WithTags("Performance Optimization")
+    .WithSummary("Export a read-only assessment as a multi-sheet Excel workbook")
+    .WithDescription("Reassesses the uploaded Power BI artifact on demand and streams a multi-sheet workbook without saving the assessment.")
+    .WithMetadata(new RequestSizeLimitAttribute(MaximumUploadRequestBytes))
+    .WithMetadata(new RequestFormLimitsAttribute
+    {
+        MultipartBodyLengthLimit = MaximumUploadRequestBytes
+    })
+    .DisableAntiforgery()
+    .Produces(StatusCodes.Status200OK, contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    .ProducesProblem(StatusCodes.Status400BadRequest)
+    .ProducesProblem(StatusCodes.Status413PayloadTooLarge);
+
 app.MapGet(
     "/api/reviews/history",
     async (
@@ -2783,7 +2850,9 @@ app.MapGet(
             return Results.Ok(await historyStore.GetRecentAsync(
                 resultLimit,
                 searchName,
-                user.IsAdmin || user.IsManager || user.IsLead ? null : user.UserId,
+                user.IsAdmin || user.IsManager || user.IsLead || ActiveWorkspaceScope.Get(httpContext) is not null
+                    ? null
+                    : user.UserId,
                 cancellationToken,
                 ActiveWorkspaceScope.Get(httpContext)));
         }
@@ -2792,13 +2861,13 @@ app.MapGet(
             logger.LogError(exception, "Loading review history from SQL Server failed.");
             return Results.Problem(
                 title: "Review history could not be loaded",
-                detail: "Verify the review-history migration and database permissions.",
+                detail: "The review-history SQL query failed. Check the API logs, verify the review-history migration, and confirm database permissions.",
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
     .WithTags("Reviews")
     .WithSummary("Search saved review history")
-    .WithDescription("Searches up to 500 unexpired review summaries belonging to the signed-in uploader, or all runs for an authorized Admin, Manager, or Lead reviewer.")
+    .WithDescription("Searches up to 500 unexpired review summaries in the selected workspace scope. A root administrator can search all runs in All organizations.")
     .Produces<IReadOnlyList<ReviewHistorySummary>>(StatusCodes.Status200OK)
     .ProducesValidationProblem()
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
@@ -2822,7 +2891,9 @@ app.MapGet(
 
             var entry = await historyStore.GetAsync(
                 reviewRunId,
-                user.IsAdmin || user.IsManager || user.IsLead ? null : user.UserId,
+                user.IsAdmin || user.IsManager || user.IsLead || ActiveWorkspaceScope.Get(httpContext) is not null
+                    ? null
+                    : user.UserId,
                 cancellationToken,
                 ActiveWorkspaceScope.Get(httpContext));
             return entry is null ? Results.NotFound() : Results.Ok(entry);
@@ -2832,13 +2903,13 @@ app.MapGet(
             logger.LogError(exception, "Loading review history entry from SQL Server failed.");
             return Results.Problem(
                 title: "Review history could not be loaded",
-                detail: "Verify the review-history migration and database permissions.",
+                detail: "The review-history SQL query failed. Check the API logs, verify the review-history migration, and confirm database permissions.",
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
     .WithTags("Reviews")
     .WithSummary("Load a saved review")
-    .WithDescription("Returns an unexpired review summary and findings only when owned by the signed-in uploader or when requested by an authorized reviewer.")
+    .WithDescription("Returns an unexpired review summary and findings when it belongs to the selected workspace scope, or when requested by an authorized global reviewer.")
     .Produces<ReviewHistoryEntry>(StatusCodes.Status200OK)
     .Produces(StatusCodes.Status404NotFound)
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
@@ -2860,11 +2931,14 @@ app.MapGet(
 
         try
         {
-            return Results.Ok(await submissionStore.GetMineAsync(
+            var submission = await submissionStore.GetMineAsync(
                 reviewRunId,
                 user.UserId,
                 cancellationToken,
-                ActiveWorkspaceScope.Get(httpContext)));
+                ActiveWorkspaceScope.Get(httpContext));
+            return submission is null
+                ? Results.NoContent()
+                : Results.Ok(submission);
         }
         catch (SqlException exception)
         {
@@ -2878,6 +2952,7 @@ app.MapGet(
     .WithTags("Review submissions")
     .WithSummary("Load the signed-in user's submitted response and reviewer feedback")
     .Produces<ReviewSubmission>(StatusCodes.Status200OK)
+    .Produces(StatusCodes.Status204NoContent)
     .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
 app.MapPost(
@@ -2994,7 +3069,8 @@ app.MapGet(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
-    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
+    .RequireAuthorization(policy => policy.RequireRole(
+        "ApplicationAdmin", "ReviewManager", "ReviewLead", "OrgLead", "ProjectLead", "TeamLead"))
     .WithTags("Review submissions")
     .WithSummary("List pending or completed submissions for authorized reviewers")
     .Produces<IReadOnlyList<ReviewSubmissionSummary>>(StatusCodes.Status200OK)
@@ -3026,7 +3102,8 @@ app.MapGet(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
-    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
+    .RequireAuthorization(policy => policy.RequireRole(
+        "ApplicationAdmin", "ReviewManager", "ReviewLead", "OrgLead", "ProjectLead", "TeamLead"))
     .WithTags("Review submissions")
     .WithSummary("Load a submitted review for authorized review")
     .Produces<ReviewSubmission>(StatusCodes.Status200OK)
@@ -3080,7 +3157,8 @@ app.MapPost(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
-    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
+    .RequireAuthorization(policy => policy.RequireRole(
+        "ApplicationAdmin", "ReviewManager", "ReviewLead", "OrgLead", "ProjectLead", "TeamLead"))
     .WithTags("Review submissions")
     .WithSummary("Record a per-finding reviewer decision and lock the response")
     .Produces<ReviewSubmission>(StatusCodes.Status200OK)
@@ -3137,7 +3215,8 @@ app.MapPost(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
-    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
+    .RequireAuthorization(policy => policy.RequireRole(
+        "ApplicationAdmin", "ReviewManager", "ReviewLead", "OrgLead", "ProjectLead", "TeamLead"))
     .WithTags("Reviews")
     .WithSummary("Save pilot feedback")
     .WithDescription("Creates or updates feedback for one finding in SQL Server.")
@@ -3196,7 +3275,8 @@ app.MapPost(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
-    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
+    .RequireAuthorization(policy => policy.RequireRole(
+        "ApplicationAdmin", "ReviewManager", "ReviewLead", "OrgLead", "ProjectLead", "TeamLead"))
     .WithTags("Reviews")
     .WithSummary("Reopen a submitted review")
     .WithDescription("Reopens all submitted feedback in a saved review for the current browser reviewer.")
@@ -3255,7 +3335,8 @@ app.MapPost(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
-    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
+    .RequireAuthorization(policy => policy.RequireRole(
+        "ApplicationAdmin", "ReviewManager", "ReviewLead", "OrgLead", "ProjectLead", "TeamLead"))
     .WithTags("Reviews")
     .WithSummary("Reopen submitted feedback")
     .WithDescription("Returns this review finding to the waiting state for the current browser reviewer.")
@@ -3307,7 +3388,8 @@ app.MapGet(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
-    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
+    .RequireAuthorization(policy => policy.RequireRole(
+        "ApplicationAdmin", "ReviewManager", "ReviewLead", "OrgLead", "ProjectLead", "TeamLead"))
     .WithTags("Reviews")
     .WithSummary("Load feedback for one saved review")
     .WithDescription("Returns this browser reviewer's submitted responses for exact findings in one saved run.")
@@ -3357,7 +3439,8 @@ app.MapGet(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
-    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
+    .RequireAuthorization(policy => policy.RequireRole(
+        "ApplicationAdmin", "ReviewManager", "ReviewLead", "OrgLead", "ProjectLead", "TeamLead"))
     .WithTags("Reviews")
     .WithSummary("List recent pilot feedback")
     .WithDescription("Returns a bounded list of recent team feedback.")
@@ -3417,7 +3500,8 @@ app.MapGet(
                 statusCode: StatusCodes.Status503ServiceUnavailable);
         }
     })
-    .RequireAuthorization(policy => policy.RequireRole("ApplicationAdmin", "ReviewManager", "ReviewLead"))
+    .RequireAuthorization(policy => policy.RequireRole(
+        "ApplicationAdmin", "ReviewManager", "ReviewLead", "OrgLead", "ProjectLead", "TeamLead"))
     .WithTags("Reviews")
     .WithSummary("List waiting and closed review findings")
     .WithDescription("Lists unexpired findings and this browser reviewer's submission status.")

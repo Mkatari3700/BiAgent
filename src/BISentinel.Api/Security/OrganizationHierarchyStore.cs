@@ -48,6 +48,13 @@ public interface IOrganizationHierarchyStore
         bool isRootAdmin,
         CancellationToken cancellationToken);
 
+    Task<bool> CanReviewScopeAsync(
+        Guid tenantId,
+        Guid userId,
+        string scopeType,
+        Guid scopeId,
+        CancellationToken cancellationToken);
+
     Task<OrganizationHierarchySnapshot> GetSnapshotAsync(
         Guid tenantId,
         Guid userId,
@@ -184,6 +191,125 @@ public sealed class SqlOrganizationHierarchyStore(string connectionString) : IOr
         command.Parameters.Add("@ScopeId", SqlDbType.UniqueIdentifier).Value = scopeId;
         command.Parameters.Add("@IsRootAdmin", SqlDbType.Bit).Value = isRootAdmin;
         command.Parameters.Add("@TenantId", SqlDbType.UniqueIdentifier).Value = tenantId;
+        return Convert.ToBoolean(await command.ExecuteScalarAsync(cancellationToken));
+    }
+
+    public async Task<bool> CanReviewScopeAsync(
+        Guid tenantId,
+        Guid userId,
+        string scopeType,
+        Guid scopeId,
+        CancellationToken cancellationToken)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync(cancellationToken);
+        await using var command = connection.CreateCommand();
+        command.CommandText = scopeType switch
+        {
+            "Organization" => """
+                SELECT CONVERT(bit, CASE WHEN EXISTS
+                (
+                    SELECT 1
+                    FROM dbo.BiAgentApplicationUsers AS actor
+                    INNER JOIN dbo.BiAgentOrganizations AS organization
+                        ON organization.OrganizationId = @ScopeId
+                    INNER JOIN dbo.BiAgentUserScopeAssignments AS assignment
+                        ON assignment.UserId = actor.UserId
+                       AND assignment.OrganizationId = organization.OrganizationId
+                       AND assignment.ScopeType = N'Organization'
+                       AND assignment.RoleName = N'OrgLead'
+                    WHERE actor.UserId = @UserId
+                      AND actor.TenantId = @TenantId
+                      AND organization.IsEnabled = 1
+                ) THEN 1 ELSE 0 END);
+                """,
+            "Project" => """
+                SELECT CONVERT(bit, CASE WHEN EXISTS
+                (
+                    SELECT 1
+                    FROM dbo.BiAgentApplicationUsers AS actor
+                    INNER JOIN dbo.BiAgentProjects AS project
+                        ON project.ProjectId = @ScopeId
+                    INNER JOIN dbo.BiAgentOrganizations AS organization
+                        ON organization.OrganizationId = project.OrganizationId
+                    WHERE actor.UserId = @UserId
+                      AND actor.TenantId = @TenantId
+                      AND project.IsEnabled = 1
+                      AND organization.IsEnabled = 1
+                      AND
+                      (
+                          EXISTS
+                          (
+                              SELECT 1
+                              FROM dbo.BiAgentUserScopeAssignments AS assignment
+                              WHERE assignment.UserId = actor.UserId
+                                AND assignment.ProjectId = project.ProjectId
+                                AND assignment.ScopeType = N'Project'
+                                AND assignment.RoleName = N'ProjectLead'
+                          )
+                          OR EXISTS
+                          (
+                              SELECT 1
+                              FROM dbo.BiAgentUserScopeAssignments AS assignment
+                              WHERE assignment.UserId = actor.UserId
+                                AND assignment.OrganizationId = organization.OrganizationId
+                                AND assignment.ScopeType = N'Organization'
+                                AND assignment.RoleName = N'OrgLead'
+                          )
+                      )
+                ) THEN 1 ELSE 0 END);
+                """,
+            "Team" => """
+                SELECT CONVERT(bit, CASE WHEN EXISTS
+                (
+                    SELECT 1
+                    FROM dbo.BiAgentApplicationUsers AS actor
+                    INNER JOIN dbo.BiAgentTeams AS team ON team.TeamId = @ScopeId
+                    INNER JOIN dbo.BiAgentProjects AS project ON project.ProjectId = team.ProjectId
+                    INNER JOIN dbo.BiAgentOrganizations AS organization
+                        ON organization.OrganizationId = project.OrganizationId
+                    WHERE actor.UserId = @UserId
+                      AND actor.TenantId = @TenantId
+                      AND team.IsEnabled = 1
+                      AND project.IsEnabled = 1
+                      AND organization.IsEnabled = 1
+                      AND
+                      (
+                          EXISTS
+                          (
+                              SELECT 1
+                              FROM dbo.BiAgentUserScopeAssignments AS assignment
+                              WHERE assignment.UserId = actor.UserId
+                                AND assignment.TeamId = team.TeamId
+                                AND assignment.ScopeType = N'Team'
+                                AND assignment.RoleName = N'TeamLead'
+                          )
+                          OR EXISTS
+                          (
+                              SELECT 1
+                              FROM dbo.BiAgentUserScopeAssignments AS assignment
+                              WHERE assignment.UserId = actor.UserId
+                                AND assignment.ProjectId = project.ProjectId
+                                AND assignment.ScopeType = N'Project'
+                                AND assignment.RoleName = N'ProjectLead'
+                          )
+                          OR EXISTS
+                          (
+                              SELECT 1
+                              FROM dbo.BiAgentUserScopeAssignments AS assignment
+                              WHERE assignment.UserId = actor.UserId
+                                AND assignment.OrganizationId = organization.OrganizationId
+                                AND assignment.ScopeType = N'Organization'
+                                AND assignment.RoleName = N'OrgLead'
+                          )
+                      )
+                ) THEN 1 ELSE 0 END);
+                """,
+            _ => "SELECT CONVERT(bit, 0);"
+        };
+        command.Parameters.Add("@UserId", SqlDbType.UniqueIdentifier).Value = userId;
+        command.Parameters.Add("@TenantId", SqlDbType.UniqueIdentifier).Value = tenantId;
+        command.Parameters.Add("@ScopeId", SqlDbType.UniqueIdentifier).Value = scopeId;
         return Convert.ToBoolean(await command.ExecuteScalarAsync(cancellationToken));
     }
 

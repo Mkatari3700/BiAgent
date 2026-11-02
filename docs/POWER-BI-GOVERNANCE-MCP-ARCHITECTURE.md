@@ -39,7 +39,7 @@ flowchart LR
   Scope --> Runner[PowerBiGovernanceAuditClient]
   Runner -->|Delegated read-only token| PBI[Power BI REST API]
   Runner --> Findings[Versioned finding engine]
-  Findings --> SQL[(SmartAgent governance history)]
+  Findings --> SQL[(smartAgent governance history)]
   MCP --> Resources[MCP check catalog and capability resources]
   MCP --> Prompts[MCP review prompt]
   Agent[Governance Agent] --> MCP
@@ -329,7 +329,7 @@ flowchart TB
   FrontDoor --> API[BI Sentinel ASP.NET Core API + MCP endpoint]
   API --> Entra[Microsoft Entra ID]
   API --> PBI[Power BI REST APIs]
-  API --> SQL[(Azure SQL SmartAgent)]
+  API --> SQL[(Azure SQL smartAgent)]
   API --> KV[Key Vault / Managed Identity]
   API --> Monitor[Application Insights / Log Analytics]
 ```
